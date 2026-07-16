@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- upgrade the Gitea Actions runner to 2.0.0
+
 ### Added
 - add bounded multi-frontier research lab
 - add experimental ragged RRC-SwiGLU kernel
