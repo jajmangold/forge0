@@ -198,6 +198,7 @@ td a { font-weight: 650; text-decoration: none; }
 .boundary-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; padding: 0; list-style: none; }
 .boundary-list li { padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text-secondary); font-size: 12px; }
 .code-block { position: relative; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-secondary); font-size: 11px; overflow-x: auto; white-space: pre; }
+.readme-body pre.code-block { white-space: pre; overflow-x: auto; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .chat-panel { display: flex; flex-direction: column; min-height: min(680px, calc(100vh - 220px)); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
