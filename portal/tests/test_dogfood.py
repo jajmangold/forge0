@@ -704,10 +704,46 @@ def test_run_record_loads_without_verification_coverage() -> None:
     ).to_dict()
     old_data.pop("verification_coverage")
     old_data.pop("critic_findings")
+    old_data.pop("critic_reviews")
 
     loaded = RunRecord.from_dict(old_data)
     assert loaded.verification_coverage == {}
     assert loaded.critic_findings == []
+    assert loaded.critic_reviews == []
+
+
+def test_critic_review_history_preserves_attempts_and_latest_fields() -> None:
+    record = RunRecord(
+        id="critic-history",
+        owner="agent",
+        repo="forge0",
+        issue_number=2,
+        issue_title="Audit critic attempts",
+    )
+    first = {
+        "pass": False,
+        "feedback": "repair this",
+        "findings": [
+            {
+                "severity": "high",
+                "file": "README.md",
+                "concern": "first defect",
+                "evidence": "observed mismatch",
+                "recommendation": "repair it",
+            }
+        ],
+    }
+    DogfoodService._record_critic_review(record, first)
+    record.critic_repair_count = 1
+    second = {"pass": True, "feedback": "fixed", "findings": []}
+    DogfoodService._record_critic_review(record, second)
+
+    assert record.critic_reviews == [
+        {"attempt": 1, "repair_count": 0, **first},
+        {"attempt": 2, "repair_count": 1, **second},
+    ]
+    assert record.critic_feedback == "fixed"
+    assert record.critic_findings == []
 
 
 def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
@@ -1031,6 +1067,15 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
     critic_prompt = critic.await_args.kwargs["messages"][-1]["content"]
     assert "requirements, not evidence" in critic_prompt
     assert "bounded evidence" in critic_prompt
+    assert record.critic_reviews == [
+        {
+            "attempt": 1,
+            "repair_count": 1,
+            "pass": True,
+            "feedback": "ok",
+            "findings": [],
+        }
+    ]
 
 
 @pytest.mark.asyncio

@@ -150,6 +150,7 @@ class RunRecord:
     verification_coverage: dict[str, list[str]] = field(default_factory=dict)
     critic_feedback: str = ""
     critic_findings: list[dict[str, Any]] = field(default_factory=list)
+    critic_reviews: list[dict[str, Any]] = field(default_factory=list)
     critic_repair_count: int = 0
     verification_repair_count: int = 0
     verification_failure_diagnostics: list[str] = field(default_factory=list)
@@ -786,8 +787,7 @@ class DogfoodService:
                 validate=lambda candidate: self._validate_critic(candidate, set(staged_files)),
             )
             normalized_review = self._validate_critic(review, set(staged_files))
-            record.critic_feedback = normalized_review["feedback"]
-            record.critic_findings = normalized_review["findings"]
+            self._record_critic_review(record, normalized_review)
             if normalized_review["pass"] is not True:
                 if record.critic_repair_count < self.config.max_critic_repairs:
                     await self._repair_pass(
@@ -1058,8 +1058,7 @@ class DogfoodService:
             validate=lambda candidate: self._validate_critic(candidate, set(staged_files)),
         )
         normalized_review = self._validate_critic(review, set(staged_files))
-        record.critic_feedback = normalized_review["feedback"]
-        record.critic_findings = normalized_review["findings"]
+        self._record_critic_review(record, normalized_review)
         if normalized_review["pass"] is not True:
             if record.critic_repair_count < self.config.max_critic_repairs:
                 await self._repair_pass(
@@ -1346,6 +1345,20 @@ class DogfoodService:
             return validate_critic_response(candidate, changed_files=changed_files)
         except ValueError as exc:
             raise DogfoodError(f"Invalid critic response: {exc}") from exc
+
+    @staticmethod
+    def _record_critic_review(record: RunRecord, review: dict[str, Any]) -> None:
+        """Persist every normalized review while retaining latest-review compatibility fields."""
+        snapshot = {
+            "attempt": len(record.critic_reviews) + 1,
+            "repair_count": record.critic_repair_count,
+            "pass": review["pass"],
+            "feedback": review["feedback"],
+            "findings": review["findings"],
+        }
+        record.critic_reviews.append(snapshot)
+        record.critic_feedback = review["feedback"]
+        record.critic_findings = review["findings"]
 
     @staticmethod
     def _issue_prompt(issue: dict[str, Any], context: str) -> str:
