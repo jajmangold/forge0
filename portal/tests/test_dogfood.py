@@ -1030,7 +1030,8 @@ def test_pull_body_reports_declared_and_effective_diff_limit(tmp_path) -> None:
 
     assert "Issue diff line limit: `600` (effective cap: `500`)" in body
     assert "Criterion 1: **pass**" in body
-    assert "&amp;lt;term&amp;gt;" in body
+    assert "&lt;term&gt;" in body
+    assert "&amp;lt;term&amp;gt;" not in body
 
 
 def test_pull_body_safely_renders_structured_critic_findings(tmp_path) -> None:

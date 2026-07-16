@@ -1690,7 +1690,9 @@ class DogfoodService:
         for review in record.critic_acceptance_reviews:
             index = review.get("criterion_index", "?")
             outcome = "pass" if review.get("pass") is True else "fail"
-            evidence = html.escape(str(review.get("evidence", "")), quote=False)
+            evidence = html.escape(
+                html.unescape(str(review.get("evidence", ""))), quote=False
+            ).replace("`", "&#96;")
             review_items.append(f"- Criterion {index}: **{outcome}** — {evidence}")
         acceptance_review_summary = (
             "\n".join(review_items) or "No structured acceptance reviews recorded."
