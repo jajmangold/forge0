@@ -19,6 +19,6 @@ def test_portal_release_uses_immutable_canary_and_no_build_promotion() -> None:
 def test_portal_release_state_is_outside_the_repository_history() -> None:
     script = (ROOT / "scripts/release-portal.sh").read_text()
 
-    assert "data/forge0-releases" in script
+    assert ".forge0-runtime/releases" in script
     assert "previous.env" in script
     assert "current.env" in script

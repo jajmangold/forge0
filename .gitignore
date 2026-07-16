@@ -18,6 +18,7 @@ build/
 
 # Data
 data/
+.forge0-runtime/
 *.db
 *.sqlite
 
