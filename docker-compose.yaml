@@ -55,7 +55,7 @@ services:
     build:
       context: ./portal
       dockerfile: Dockerfile
-    image: forge0-portal:latest
+    image: ${FORGE0_PORTAL_IMAGE:-forge0-portal:current}
     container_name: forge0-portal
     restart: unless-stopped
     mem_limit: 512m
@@ -97,6 +97,8 @@ services:
       FORGE0_MAX_VERIFICATION_REPAIRS: ${FORGE0_MAX_VERIFICATION_REPAIRS:-1}
       FORGE0_RUN_TOKEN_BUDGET: ${FORGE0_RUN_TOKEN_BUDGET:-100000}
       FORGE0_KEEP_WORKSPACES: ${FORGE0_KEEP_WORKSPACES:-false}
+      FORGE0_MAX_CONCURRENT_RUNS: ${FORGE0_MAX_CONCURRENT_RUNS:-1}
+      FORGE0_SUPERVISOR_ENABLED: ${FORGE0_SUPERVISOR_ENABLED:-true}
     volumes:
       - dogfood-data:/var/lib/forge0
     depends_on:

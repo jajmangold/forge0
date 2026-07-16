@@ -24,11 +24,13 @@ from .dogfood import DogfoodError, DogfoodService
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    await get_dogfood_service().start()
+    supervisor_enabled = os.getenv("FORGE0_SUPERVISOR_ENABLED", "true").lower() == "true"
+    if supervisor_enabled:
+        await get_dogfood_service().start()
     try:
         yield
     finally:
-        if _dogfood_service is not None:
+        if supervisor_enabled and _dogfood_service is not None:
             await _dogfood_service.stop()
 
 

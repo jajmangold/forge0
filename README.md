@@ -85,6 +85,18 @@ fail closed: the run is marked for operator review and no partial work is
 merged. The `FORGE0_MAX_CONCURRENT_RUNS` environment variable controls how
 many runs execute in parallel (default `1`).
 
+Portal releases are built explicitly and promoted by immutable image identity:
+
+```bash
+scripts/release-portal.sh release
+scripts/release-portal.sh rollback
+```
+
+The release command boots a supervisor-disabled shadow portal on
+`127.0.0.1:3301`, requires both `/healthz` and `/readyz`, and only then
+recreates production with `--no-build`. A failed promotion restores the prior
+image automatically. Release state is stored under `data/forge0-releases/`.
+
 The default per-file ceiling is 128 KiB so Forge0 can modify its current
 self-extension engine; the independent five-file and 500-line diff limits still
 bound every run.
