@@ -42,7 +42,12 @@ make
 ./rrc_swiglu_test --num_rows 128 --max_row_len 2048 --iterations 100 \
   --epsilon 1e-5 --threshold 0.5 --sharpness 10 --block_size 256
 make run-bench-large
+make run-pinned-cuda GPU=4
 ```
+
+`run-pinned-cuda` locks the CUDA 12.9.1 devel image by digest, compiles for
+`sm_70`, checks block sizes 32, 256, and 1024, then records the reference
+100-iteration benchmark. `GPU` is the host device index and defaults to `0`.
 
 Run `./rrc_swiglu_test --help` or `make help` for every supported option. The
 program always runs the CPU-reference correctness checks before benchmarking

@@ -17,9 +17,11 @@ KERNEL_SRC := rrc_swiglu_kernel.cu
 
 # Output executable
 TEST_BIN := rrc_swiglu_test
+CUDA_IMAGE := nvidia/cuda@sha256:020bc241a628776338f4d4053fed4c38f6f7f3d7eb5919fecb8de313bb8ba47c
+GPU ?= 0
 
 # Default target
-.PHONY: all clean run-test run-bench run-bench-large help
+.PHONY: all clean run-test run-bench run-bench-large run-pinned-cuda help
 
 all: $(TEST_BIN)
 
@@ -39,6 +41,16 @@ run-bench: $(TEST_BIN)
 run-bench-large: $(TEST_BIN)
 	./$(TEST_BIN) --num_rows 8192 --max_row_len 2048 --iterations 200
 
+# Reproduce correctness boundaries and the reference benchmark in the locked
+# CUDA 12.9.1 toolchain. Override GPU=<index> to select a device.
+run-pinned-cuda:
+	docker run --rm --gpus "device=$(GPU)" -v "$(CURDIR):/workspace" -w /workspace \
+		$(CUDA_IMAGE) bash -lc 'make clean all && \
+		for block in 32 256 1024; do \
+			./$(TEST_BIN) --num_rows 128 --max_row_len 2048 --iterations 10 --block_size $$block; \
+		done && \
+		./$(TEST_BIN) --num_rows 128 --max_row_len 2048 --iterations 100 --block_size 256'
+
 # Clean build artifacts
 clean:
 	rm -f $(TEST_BIN) *.o
@@ -52,6 +64,7 @@ help:
 	@echo "  run-test     - Build and run correctness tests"
 	@echo "  run-bench    - Build and run benchmark"
 	@echo "  run-bench-large - Build and run benchmark with large inputs"
+	@echo "  run-pinned-cuda - Reproduce tests/benchmark in a digest-pinned CUDA image"
 	@echo "  clean        - Remove build artifacts"
 	@echo "  help         - Show this help"
 	@echo ""
