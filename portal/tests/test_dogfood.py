@@ -226,6 +226,73 @@ def test_replace_many_rolls_back_when_a_later_change_is_invalid(tmp_path) -> Non
     assert secondary.read_text() == "second\n"
 
 
+def test_single_target_change_passes_one_or_coalesces_exact_replacements() -> None:
+    single = {"path": "README.md", "operation": "rewrite", "content": "new\n"}
+    assert DogfoodService._single_target_change([single], "README.md") == single
+    assert DogfoodService._single_target_change(
+        [
+            {"path": "README.md", "operation": "replace", "old": "one", "new": "ONE"},
+            {"path": "README.md", "operation": "replace", "old": "two", "new": "TWO"},
+        ],
+        "README.md",
+    ) == {
+        "path": "README.md",
+        "operation": "replace_many",
+        "replacements": [{"old": "one", "new": "ONE"}, {"old": "two", "new": "TWO"}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("changes", "error"),
+    [
+        (None, "non-empty array"),
+        ([], "non-empty array"),
+        ([{"path": "other.md"}], "wrong target"),
+        ([{"path": "README.md", "operation": "replace", "old": "a", "new": "b"}] * 13, "12"),
+        (
+            [
+                {"path": "README.md", "operation": "replace", "old": "a", "new": "b"},
+                {"path": "other.md", "operation": "replace", "old": "c", "new": "d"},
+            ],
+            "wrong target",
+        ),
+        (
+            [
+                {"path": "README.md", "operation": "replace", "old": "a", "new": "b"},
+                {"path": "README.md", "operation": "rewrite", "old": "c", "new": "d"},
+            ],
+            "all use replace",
+        ),
+        (
+            [
+                {"path": "README.md", "operation": "replace", "old": "a", "new": "b"},
+                {"path": "README.md", "operation": "replace", "old": "c", "new": "d", "extra": True},
+            ],
+            "exactly path",
+        ),
+    ],
+)
+def test_single_target_change_rejects_unsafe_shapes(changes, error: str) -> None:
+    with pytest.raises(DogfoodError, match=error):
+        DogfoodService._single_target_change(changes, "README.md")
+
+
+def test_coalesced_target_replacements_keep_overlap_check_transactional(tmp_path) -> None:
+    path = tmp_path / "README.md"
+    path.write_text("abc\n")
+    change = DogfoodService._single_target_change(
+        [
+            {"path": "README.md", "operation": "replace", "old": "ab", "new": "AB"},
+            {"path": "README.md", "operation": "replace", "old": "bc", "new": "BC"},
+        ],
+        "README.md",
+    )
+
+    with pytest.raises(DogfoodError, match="overlap"):
+        ChangeApplier(tmp_path, config(tmp_path), {"README.md"}).apply([change])
+    assert path.read_text() == "abc\n"
+
+
 @pytest.mark.parametrize("path", ["../secret", ".env", "outside.txt", "/tmp/file"])
 def test_change_applier_rejects_unsafe_paths(tmp_path, path: str) -> None:
     applier = ChangeApplier(tmp_path, config(tmp_path), {path})
@@ -1344,7 +1411,7 @@ async def test_verification_repair_rejects_truncation_and_wrong_scope(tmp_path) 
     assert record.verification_repair_count == 1
     assert len(record.correction_errors) == 3
     assert "truncated by the token limit" in record.correction_errors[0]
-    assert "wrong repair target" in record.correction_errors[1]
+    assert "wrong target file" in record.correction_errors[1]
     assert service.store.load(record.id).correction_errors == record.correction_errors
 
 

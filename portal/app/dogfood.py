@@ -761,12 +761,12 @@ class DogfoodService:
                     try:
                         self._ensure_complete(code_result)
                         file_implementation = self._parse_json(code_result.content)
-                        changes = file_implementation.get("changes")
-                        if not isinstance(changes, list) or len(changes) != 1:
-                            raise DogfoodError("Coder must return exactly one change for the target file")
-                        if not isinstance(changes[0], dict) or changes[0].get("path") != target_file:
-                            raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
-                        changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+                        change = self._single_target_change(
+                            file_implementation.get("changes"), target_file
+                        )
+                        changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(
+                            [change]
+                        )
                         applied.extend(changed)
                         if not implementation:
                             implementation = file_implementation
@@ -956,13 +956,9 @@ class DogfoodService:
                 try:
                     self._ensure_complete(result)
                     repaired = self._parse_json(result.content)
-                    changes = repaired.get("changes")
-                    if not isinstance(changes, list) or len(changes) != 1:
-                        raise DogfoodError("Coder must return exactly one repair change for the target file")
-                    if not isinstance(changes[0], dict) or changes[0].get("path") != target_file:
-                        raise DogfoodError(f"Coder returned the wrong repair target; expected {target_file}")
+                    change = self._single_target_change(repaired.get("changes"), target_file)
                     repaired_files.extend(
-                        ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+                        ChangeApplier(workspace.repo_path, self.config, planned_files).apply([change])
                     )
                     if not implementation.get("pr_body"):
                         implementation["pr_body"] = repaired.get("pr_body", "")
@@ -1061,12 +1057,12 @@ class DogfoodService:
                 try:
                     self._ensure_complete(code_result)
                     file_implementation = self._parse_json(code_result.content)
-                    changes = file_implementation.get("changes")
-                    if not isinstance(changes, list) or len(changes) != 1:
-                        raise DogfoodError("Coder must return exactly one change for the target file")
-                    if not isinstance(changes[0], dict) or changes[0].get("path") != target_file:
-                        raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
-                    changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+                    change = self._single_target_change(
+                        file_implementation.get("changes"), target_file
+                    )
+                    changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(
+                        [change]
+                    )
                     new_applied.extend(changed)
                     if not implementation.get("pr_body"):
                         implementation["pr_body"] = file_implementation.get("pr_body", "")
@@ -1501,6 +1497,34 @@ class DogfoodService:
                 return set(planned_files)
             implicated.add(path)
         return implicated or set(planned_files)
+
+    @staticmethod
+    def _single_target_change(changes: Any, target_file: str) -> dict[str, Any]:
+        """Normalize bounded same-target replacements into one atomic change."""
+        if not isinstance(changes, list) or not changes:
+            raise DogfoodError("Coder changes must be a non-empty array")
+        if len(changes) == 1:
+            change = changes[0]
+            if not isinstance(change, dict) or change.get("path") != target_file:
+                raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
+            return change
+        if len(changes) > 12:
+            raise DogfoodError("Coder returned more than 12 changes for one target file")
+
+        replacements: list[dict[str, str]] = []
+        expected_keys = {"path", "operation", "old", "new"}
+        for change in changes:
+            if not isinstance(change, dict) or set(change) != expected_keys:
+                raise DogfoodError("Multi-change entries must contain exactly path, operation, old, and new")
+            if change["path"] != target_file:
+                raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
+            if change["operation"] != "replace":
+                raise DogfoodError("Multiple target changes must all use replace")
+            old, new = change["old"], change["new"]
+            if not isinstance(old, str) or not old or not isinstance(new, str) or not new:
+                raise DogfoodError("Multiple target replacements require non-empty old and new strings")
+            replacements.append({"old": old, "new": new})
+        return {"path": target_file, "operation": "replace_many", "replacements": replacements}
 
     @staticmethod
     def _validate_critic(
