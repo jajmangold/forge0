@@ -139,6 +139,7 @@ class RunRecord:
     repo: str
     issue_number: int
     issue_title: str
+    issue_diff_line_limit: int | None = None
     status: RunStatus = RunStatus.QUEUED
     branch: str = ""
     base_branch: str = "main"
@@ -558,6 +559,7 @@ class DogfoodService:
                 repo=repo,
                 issue_number=issue_number,
                 issue_title=issue.get("title", ""),
+                issue_diff_line_limit=self._issue_diff_line_limit(issue),
                 branch=f"agent/{issue_number}-{slug or 'task'}-{run_id[-4:]}",
             )
             self.store.save(record)
@@ -602,6 +604,37 @@ class DogfoodService:
         if not re.search(r"(?im)^#{1,3}\s+acceptance criteria\s*$", body):
             raise DogfoodError("Issue must contain an Acceptance Criteria heading")
         self._issue_file_scope(issue)
+        self._issue_diff_line_limit(issue)
+
+    def _issue_diff_line_limit(self, issue: dict[str, Any]) -> int | None:
+        """Parse an optional authoritative issue-level added-plus-deleted line cap."""
+        lines = str(issue.get("body") or "").splitlines()
+        headings = [
+            index
+            for index, line in enumerate(lines)
+            if re.fullmatch(r"#{1,3}\s+diff line limit\s*", line, flags=re.IGNORECASE)
+        ]
+        if not headings:
+            return None
+        if len(headings) != 1:
+            raise DogfoodError("Issue must contain at most one Diff Line Limit heading")
+
+        values: list[str] = []
+        for line in lines[headings[0] + 1 :]:
+            if re.match(r"^#{1,6}\s+", line):
+                break
+            if line.strip():
+                values.append(line.strip())
+        if len(values) != 1:
+            raise DogfoodError("Diff Line Limit must contain exactly one value")
+        if re.fullmatch(r"\d+", values[0]) is None:
+            raise DogfoodError("Diff Line Limit must be an unsigned decimal integer")
+        limit = int(values[0])
+        if limit < 1:
+            raise DogfoodError("Diff Line Limit must be a positive integer")
+        if limit > self.config.max_kernel_diff_lines:
+            raise DogfoodError("Diff Line Limit exceeds the operator maximum")
+        return limit
 
     def _issue_file_scope(self, issue: dict[str, Any]) -> set[str] | None:
         """Parse and validate an optional issue-level file allowlist."""
@@ -743,9 +776,7 @@ class DogfoodService:
             staged_files, diff_lines, diff = await workspace.stage_and_measure()
             if set(staged_files) != set(applied):
                 raise DogfoodError("Repository changes did not match the structured change list")
-            diff_limit = self._diff_limit(staged_files)
-            if diff_lines > diff_limit:
-                raise DogfoodError(f"Diff exceeded {diff_limit} changed lines")
+            self._enforce_diff_line_limit(record, staged_files, diff_lines)
             record.changed_files = staged_files
 
             record.status = RunStatus.VERIFYING
@@ -933,9 +964,9 @@ class DogfoodService:
         staged_files, diff_lines, diff = await workspace.stage_and_measure()
         if set(repaired_files) != repair_targets or set(staged_files) != expected_staged_files:
             raise DogfoodError("Repository changes did not match the structured verification repair list")
-        diff_limit = self._diff_limit(staged_files)
-        if diff_lines > diff_limit:
-            raise DogfoodError(f"Diff exceeded {diff_limit} changed lines after verification repair")
+        self._enforce_diff_line_limit(
+            record, staged_files, diff_lines, suffix=" after verification repair"
+        )
         if len(diff) > self.config.max_critic_diff_chars:
             raise DogfoodError("Diff exceeded the critic context limit after verification repair")
         record.changed_files = staged_files
@@ -1038,9 +1069,7 @@ class DogfoodService:
         staged_files, diff_lines, diff = await workspace.stage_and_measure()
         if set(new_applied) != repair_targets or set(staged_files) != expected_staged_files:
             raise DogfoodError("Repository changes did not match the structured change list after repair")
-        diff_limit = self._diff_limit(staged_files)
-        if diff_lines > diff_limit:
-            raise DogfoodError(f"Diff exceeded {diff_limit} changed lines after repair")
+        self._enforce_diff_line_limit(record, staged_files, diff_lines, suffix=" after repair")
         record.changed_files = staged_files
 
         # Enforce existing limits again
@@ -1231,6 +1260,25 @@ class DogfoodService:
         if changed_files and all(path.startswith("kernels/") for path in changed_files):
             return self.config.max_kernel_diff_lines
         return self.config.max_diff_lines
+
+    def _effective_diff_limit(
+        self, changed_files: list[str], issue_limit: int | None
+    ) -> int:
+        repository_limit = self._diff_limit(changed_files)
+        return min(repository_limit, issue_limit) if issue_limit is not None else repository_limit
+
+    def _enforce_diff_line_limit(
+        self,
+        record: RunRecord,
+        changed_files: list[str],
+        diff_lines: int,
+        *,
+        suffix: str = "",
+    ) -> int:
+        effective = self._effective_diff_limit(changed_files, record.issue_diff_line_limit)
+        if diff_lines > effective:
+            raise DogfoodError(f"Diff exceeded {effective} changed lines{suffix}")
+        return effective
 
     def _add_usage(self, record: RunRecord, usage: dict[str, int]) -> None:
         for key, value in usage.items():
@@ -1550,8 +1598,7 @@ class DogfoodService:
             "from hypothetical rendering."
         )
 
-    @staticmethod
-    def _pull_body(record: RunRecord, implementation: dict[str, Any], sha: str) -> str:
+    def _pull_body(self, record: RunRecord, implementation: dict[str, Any], sha: str) -> str:
         checks = "\n".join(
             f"- [{'x' if item['success'] else ' '}] `{item['command']}`" for item in record.verification
         )
@@ -1579,6 +1626,15 @@ class DogfoodService:
             f"`{html.escape(name, quote=False).replace('`', '&#96;').replace(chr(10), ' ')}`"
             for name in record.changed_files
         )
+        diff_limit_line = ""
+        if record.issue_diff_line_limit is not None:
+            effective = self._effective_diff_limit(
+                record.changed_files, record.issue_diff_line_limit
+            )
+            diff_limit_line = (
+                f"- Issue diff line limit: `{record.issue_diff_line_limit}` "
+                f"(effective cap: `{effective}`)\n"
+            )
         critic_items = []
         for finding in record.critic_findings:
             file_name = str(finding.get("file") or "repository-global")
@@ -1601,6 +1657,7 @@ class DogfoodService:
             f"- Issue: #{record.issue_number}\n"
             f"- Commit: `{sha}`\n"
             f"- Files: {safe_changed_files}\n"
+            f"{diff_limit_line}"
             f"- Critic: {record.critic_feedback}\n\n"
             f"## Structured critic findings\n\n{critic_summary}\n\n"
             f"## Automated repository checks\n\n{checks}\n\n"

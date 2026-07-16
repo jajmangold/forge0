@@ -322,6 +322,37 @@ def test_issue_file_scope_cannot_exceed_global_file_limit(tmp_path) -> None:
         service._validate_issue(issue)
 
 
+def test_issue_diff_line_limit_is_optional_and_parsed(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    legacy = {"body": "## Acceptance Criteria\n- safe"}
+    issue = {
+        "body": "# Diff Line Limit\n\n6\n\n## Acceptance Criteria\n- safe",
+    }
+
+    assert service._issue_diff_line_limit(legacy) is None
+    assert service._issue_diff_line_limit(issue) == 6
+
+
+@pytest.mark.parametrize(
+    ("body", "error"),
+    [
+        ("## Diff Line Limit\n", "exactly one"),
+        ("## Diff Line Limit\n6\n7", "exactly one"),
+        ("## Diff Line Limit\n-1", "unsigned decimal"),
+        ("## Diff Line Limit\n+1", "unsigned decimal"),
+        ("## Diff Line Limit\n1.5", "unsigned decimal"),
+        ("## Diff Line Limit\n0", "positive integer"),
+        ("## Diff Line Limit\n2001", "operator maximum"),
+        ("## Diff Line Limit\n6\n## Diff Line Limit\n7", "at most one"),
+    ],
+)
+def test_issue_diff_line_limit_rejects_malformed_values(tmp_path, body: str, error: str) -> None:
+    service = DogfoodService(config(tmp_path))
+
+    with pytest.raises(DogfoodError, match=error):
+        service._issue_diff_line_limit({"body": body})
+
+
 def test_plan_cannot_escape_issue_file_scope_and_legacy_plan_is_unchanged(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
 
@@ -501,6 +532,20 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
     service = DogfoodService(loaded)
     assert service._diff_limit(["kernels/example/kernel.cu"]) == 2000
     assert service._diff_limit(["kernels/example/kernel.cu", "portal/app/main.py"]) == 500
+    assert service._effective_diff_limit(["kernels/example/kernel.cu"], 600) == 600
+    assert service._effective_diff_limit(["portal/app/main.py"], 600) == 500
+
+    record = RunRecord(
+        id="issue-diff-limit",
+        owner="agent",
+        repo="forge0",
+        issue_number=5,
+        issue_title="Bound diff",
+        issue_diff_line_limit=6,
+    )
+    assert service._enforce_diff_line_limit(record, ["README.md"], 6) == 6
+    with pytest.raises(DogfoodError, match="exceeded 6 changed lines"):
+        service._enforce_diff_line_limit(record, ["README.md"], 7)
 
 
 @pytest.mark.asyncio
@@ -794,12 +839,14 @@ def test_run_record_loads_without_verification_coverage() -> None:
     old_data.pop("critic_findings")
     old_data.pop("critic_reviews")
     old_data.pop("llm_budget_admissions")
+    old_data.pop("issue_diff_line_limit")
 
     loaded = RunRecord.from_dict(old_data)
     assert loaded.verification_coverage == {}
     assert loaded.critic_findings == []
     assert loaded.critic_reviews == []
     assert loaded.llm_budget_admissions == []
+    assert loaded.issue_diff_line_limit is None
 
 
 def test_critic_review_history_preserves_attempts_and_latest_fields() -> None:
@@ -877,7 +924,7 @@ def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
         DogfoodService._validate_critic({"pass": True, "feedback": "missing"}, {"README.md"})
 
 
-def test_pull_body_separates_checks_and_manual_coverage() -> None:
+def test_pull_body_separates_checks_and_manual_coverage(tmp_path) -> None:
     record = RunRecord(
         id="coverage-run",
         owner="agent",
@@ -893,7 +940,9 @@ def test_pull_body_separates_checks_and_manual_coverage() -> None:
         },
     )
 
-    body = DogfoodService._pull_body(record, {"pr_body": "Bounded change"}, "abc123")
+    body = DogfoodService(config(tmp_path))._pull_body(
+        record, {"pr_body": "Bounded change"}, "abc123"
+    )
 
     assert "## Automated repository checks\n\n- [x] `pytest -q`" in body
     assert "## Acceptance coverage" in body
@@ -904,7 +953,7 @@ def test_pull_body_separates_checks_and_manual_coverage() -> None:
     assert "&lt;unsafe&gt;&#96;name.cu" in body
 
 
-def test_pull_body_has_no_manual_toolchain_claim_for_docs_only() -> None:
+def test_pull_body_has_no_manual_toolchain_claim_for_docs_only(tmp_path) -> None:
     record = RunRecord(
         id="docs-run",
         owner="agent",
@@ -916,13 +965,29 @@ def test_pull_body_has_no_manual_toolchain_claim_for_docs_only() -> None:
         verification_coverage={"automated": [], "review_only": ["README.md"], "manual": []},
     )
 
-    body = DogfoodService._pull_body(record, {}, "abc123")
+    body = DogfoodService(config(tmp_path))._pull_body(record, {}, "abc123")
 
     assert "documentation review only; no extra toolchain required" in body
     assert "## Manual acceptance required\n\nNo uncovered implementation paths." in body
 
 
-def test_pull_body_safely_renders_structured_critic_findings() -> None:
+def test_pull_body_reports_declared_and_effective_diff_limit(tmp_path) -> None:
+    record = RunRecord(
+        id="limited-run",
+        owner="agent",
+        repo="forge0",
+        issue_number=17,
+        issue_title="Limit docs",
+        changed_files=["README.md"],
+        issue_diff_line_limit=600,
+    )
+
+    body = DogfoodService(config(tmp_path))._pull_body(record, {}, "abc123")
+
+    assert "Issue diff line limit: `600` (effective cap: `500`)" in body
+
+
+def test_pull_body_safely_renders_structured_critic_findings(tmp_path) -> None:
     record = RunRecord(
         id="critic-run",
         owner="agent",
@@ -941,7 +1006,7 @@ def test_pull_body_safely_renders_structured_critic_findings() -> None:
         ],
     )
 
-    body = DogfoodService._pull_body(record, {}, "abc123")
+    body = DogfoodService(config(tmp_path))._pull_body(record, {}, "abc123")
 
     assert "## Structured critic findings" in body
     assert "repository-global" in body
@@ -1088,6 +1153,30 @@ async def test_verification_repair_regenerates_and_reruns_fixed_checks(monkeypat
     assert [event["purpose"] for event in record.llm_budget_admissions] == [
         "verification-repair"
     ]
+
+
+@pytest.mark.asyncio
+async def test_verification_repair_cannot_exceed_issue_diff_line_limit(tmp_path) -> None:
+    cfg = config(tmp_path, max_verification_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("verification-repair-diff-limit")
+    record.issue_diff_line_limit = 1
+
+    with patch.object(service, "_comment", new=AsyncMock()):
+        with pytest.raises(
+            DogfoodError, match="exceeded 1 changed lines after verification repair"
+        ):
+            await service._verification_repair_pass(
+                record,
+                workspace,
+                repair_client(),
+                {},
+                {"files": ["README.md"]},
+                {"README.md"},
+                {},
+                {"command": "pytest -q", "success": False, "output": "failure"},
+            )
 
 
 @pytest.mark.asyncio
@@ -1290,6 +1379,37 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
             "findings": [],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_critic_repair_cannot_exceed_issue_diff_line_limit(tmp_path) -> None:
+    cfg = config(tmp_path, max_critic_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("critic-repair-diff-limit")
+    record.issue_diff_line_limit = 1
+    record.critic_findings = [
+        {
+            "severity": "high",
+            "file": "README.md",
+            "concern": "Broken behavior",
+            "evidence": "failing case",
+            "recommendation": "repair it",
+        }
+    ]
+
+    with patch.object(service, "_comment", new=AsyncMock()):
+        with pytest.raises(DogfoodError, match="exceeded 1 changed lines after repair"):
+            await service._repair_pass(
+                record,
+                workspace,
+                repair_client(),
+                {},
+                {"files": ["README.md"]},
+                {"README.md"},
+                {},
+                "",
+            )
 
 
 @pytest.mark.asyncio
