@@ -155,6 +155,7 @@ class RunRecord:
     verification_repair_count: int = 0
     verification_failure_diagnostics: list[str] = field(default_factory=list)
     correction_errors: list[str] = field(default_factory=list)
+    llm_budget_admissions: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     error: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -711,7 +712,10 @@ class DogfoodService:
                         model=self.config.coder_model,
                         temperature=0.1,
                         max_tokens=self._bounded_completion_tokens(
-                            record, implementation_messages, 20_000
+                            record,
+                            implementation_messages,
+                            20_000,
+                            purpose="implementation",
                         ),
                         response_format={"type": "json_object"},
                     )
@@ -896,7 +900,12 @@ class DogfoodService:
                     messages=repair_messages,
                     model=self.config.coder_model,
                     temperature=0.1,
-                    max_tokens=self._bounded_completion_tokens(record, repair_messages, 20_000),
+                    max_tokens=self._bounded_completion_tokens(
+                        record,
+                        repair_messages,
+                        20_000,
+                        purpose="verification-repair",
+                    ),
                     response_format={"type": "json_object"},
                 )
                 self._add_usage(record, result.usage)
@@ -996,7 +1005,12 @@ class DogfoodService:
                     messages=repair_messages,
                     model=self.config.coder_model,
                     temperature=0.1,
-                    max_tokens=self._bounded_completion_tokens(record, repair_messages, 20_000),
+                    max_tokens=self._bounded_completion_tokens(
+                        record,
+                        repair_messages,
+                        20_000,
+                        purpose="critic-repair",
+                    ),
                     response_format={"type": "json_object"},
                 )
                 self._add_usage(record, code_result.usage)
@@ -1227,9 +1241,25 @@ class DogfoodService:
         self.store.save(record)
 
     def _bounded_completion_tokens(
-        self, record: RunRecord, messages: list[dict[str, str]], requested: int
+        self,
+        record: RunRecord,
+        messages: list[dict[str, str]],
+        requested: int,
+        *,
+        purpose: str,
     ) -> int:
         """Conservatively admit a call without claiming an unavailable exact tokenizer."""
+        allowed_purposes = {
+            "planner",
+            "implementation",
+            "verification-repair",
+            "critic",
+            "critic-repair",
+        }
+        if purpose not in allowed_purposes:
+            raise DogfoodError("Unknown LLM budget admission purpose")
+        if len(record.llm_budget_admissions) >= 100:
+            raise DogfoodError("LLM budget admission history limit reached; refusing further calls")
         used = record.usage.get("total_tokens", 0)
         remaining = self.config.token_budget - used
         prompt_bytes = sum(
@@ -1239,11 +1269,25 @@ class DogfoodService:
         estimated_prompt_tokens = (prompt_bytes + 2) // 3 + (64 * len(messages)) + 256
         available_completion = remaining - estimated_prompt_tokens
         minimum_completion = min(requested, 256)
-        if available_completion < minimum_completion:
+        admitted = available_completion >= minimum_completion
+        admitted_completion = min(requested, available_completion) if admitted else 0
+        event = {
+            "sequence": len(record.llm_budget_admissions) + 1,
+            "purpose": purpose,
+            "used_tokens_before": used,
+            "token_budget": self.config.token_budget,
+            "estimated_prompt_tokens": estimated_prompt_tokens,
+            "requested_completion_tokens": requested,
+            "admitted_completion_tokens": admitted_completion,
+            "admitted": admitted,
+        }
+        record.llm_budget_admissions.append(event)
+        self.store.save(record)
+        if not admitted:
             raise DogfoodError(
                 "Run lacks enough estimated remaining LLM token budget for another bounded call"
             )
-        return min(requested, available_completion)
+        return admitted_completion
 
     async def _json_completion(
         self,
@@ -1269,7 +1313,9 @@ class DogfoodService:
                 messages=attempt_messages,
                 model=model,
                 temperature=temperature,
-                max_tokens=self._bounded_completion_tokens(record, attempt_messages, max_tokens),
+                max_tokens=self._bounded_completion_tokens(
+                    record, attempt_messages, max_tokens, purpose=model
+                ),
                 response_format={"type": "json_object"},
             )
             self._add_usage(record, result.usage)
