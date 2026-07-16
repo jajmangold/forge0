@@ -162,6 +162,16 @@ async def get_issue(owner: str, name: str, number: int) -> dict:
     return await _get(f"/repos/{owner}/{name}/issues/{number}")
 
 
+async def create_issue(
+    owner: str, name: str, *, title: str, body: str, label_ids: list[int]
+) -> dict:
+    return await _request(
+        "POST",
+        f"/repos/{owner}/{name}/issues",
+        json={"title": title, "body": body, "labels": label_ids},
+    )
+
+
 async def add_issue_comment(owner: str, name: str, number: int, body: str) -> dict:
     return await _request(
         "POST",
