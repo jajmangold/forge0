@@ -96,6 +96,7 @@ class DogfoodConfig:
     max_concurrent_runs: int = 1
     auto_discovery_enabled: bool = False
     discovery_min_occurrences: int = 2
+    discovery_max_open_issues: int = 2
 
     @property
     def full_name(self) -> str:
@@ -124,6 +125,9 @@ class DogfoodConfig:
         discovery_min_occurrences = int(os.getenv("FORGE0_DISCOVERY_MIN_OCCURRENCES", "2"))
         if not 2 <= discovery_min_occurrences <= 10:
             raise ValueError("FORGE0_DISCOVERY_MIN_OCCURRENCES must be between 2 and 10")
+        discovery_max_open_issues = int(os.getenv("FORGE0_DISCOVERY_MAX_OPEN_ISSUES", "2"))
+        if not 1 <= discovery_max_open_issues <= 5:
+            raise ValueError("FORGE0_DISCOVERY_MAX_OPEN_ISSUES must be between 1 and 5")
         return cls(
             self_owner=owner,
             self_repo=repo,
@@ -147,6 +151,7 @@ class DogfoodConfig:
             auto_discovery_enabled=os.getenv("FORGE0_AUTO_DISCOVERY_ENABLED", "false").lower()
             == "true",
             discovery_min_occurrences=discovery_min_occurrences,
+            discovery_max_open_issues=discovery_max_open_issues,
         )
 
 
@@ -635,6 +640,12 @@ class DogfoodService:
             self.config.self_owner, self.config.self_repo, state="all", limit=100
         )
         bodies = [str(issue.get("body") or "") for issue in issues]
+        open_discovered = sum(
+            issue.get("state") == "open" and "<!-- forge0-discovery:" in str(issue.get("body") or "")
+            for issue in issues
+        )
+        if open_discovered >= self.config.discovery_max_open_issues:
+            return
         labels = await gitea.list_labels(self.config.self_owner, self.config.self_repo)
         ready = next((label for label in labels if label.get("name") == self.config.trigger_label), None)
         if ready is None:
@@ -645,6 +656,7 @@ class DogfoodService:
                 continue
             run_ids = "\n".join(f"- `{run_id}`" for run_id in candidate.run_ids[-10:])
             body = (
+                f"{marker}\n\n"
                 "## Goal\n\nHarden Forge0 against a recurring self-extension failure discovered from "
                 "durable run telemetry.\n\n"
                 "## Acceptance Criteria\n\n"
@@ -655,15 +667,17 @@ class DogfoodService:
                 f"## Observed Telemetry\n\nOccurrences: {candidate.occurrences}\n\n"
                 f"Normalized signature: `{candidate.signature}`\n\nRuns:\n{run_ids}\n\n"
                 "## File Scope\n\n- `portal/app/dogfood.py`\n- `portal/tests/test_dogfood.py`\n\n"
-                "## Diff Line Limit\n\n300\n\n"
-                f"{marker}"
+                "## Diff Line Limit\n\n300"
             )
-            await gitea.create_issue(
+            created = await gitea.create_issue(
                 self.config.self_owner,
                 self.config.self_repo,
                 title=f"Harden recurring dogfood failure {candidate.fingerprint[:8]}",
                 body=body,
                 label_ids=[int(ready["id"])],
+            )
+            await self.enqueue(
+                self.config.self_owner, self.config.self_repo, int(created["number"])
             )
             return
 
