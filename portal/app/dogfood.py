@@ -729,7 +729,10 @@ class DogfoodService:
             implementation: dict[str, Any] = {}
             applied: list[str] = []
             for target_file in sorted(planned_files):
-                file_context = self._planned_file_context(workspace.repo_path, planned_files)
+                file_context = self._planned_file_context(workspace.repo_path, {target_file})
+                contract_context = self._planned_contract_context(
+                    workspace.repo_path, planned_files - {target_file}
+                )
                 correction = ""
                 for attempt in range(3):
                     implementation_messages = [
@@ -742,6 +745,7 @@ class DogfoodService:
                                 file_context,
                                 correction,
                                 target_file=target_file,
+                                contract_context=contract_context,
                             ),
                         },
                     ]
@@ -943,7 +947,10 @@ class DogfoodService:
         repair_targets = self._verification_repair_targets(planned_files, diagnostic)
         repaired_files: list[str] = []
         for target_file in sorted(repair_targets):
-            file_context = self._planned_file_context(workspace.repo_path, planned_files)
+            file_context = self._planned_file_context(workspace.repo_path, {target_file})
+            contract_context = self._planned_contract_context(
+                workspace.repo_path, planned_files - {target_file}
+            )
             correction = ""
             for attempt in range(3):
                 repair_messages = [
@@ -957,6 +964,7 @@ class DogfoodService:
                             correction,
                             target_file=target_file,
                             verification_diagnostic=diagnostic,
+                            contract_context=contract_context,
                         ),
                     },
                 ]
@@ -1044,7 +1052,10 @@ class DogfoodService:
         # Regenerate only implicated planned files using current contents plus critic feedback.
         new_applied: list[str] = []
         for target_file in sorted(repair_targets):
-            file_context = self._planned_file_context(workspace.repo_path, planned_files)
+            file_context = self._planned_file_context(workspace.repo_path, {target_file})
+            contract_context = self._planned_contract_context(
+                workspace.repo_path, planned_files - {target_file}
+            )
             correction = ""
             for attempt in range(3):
                 repair_messages = [
@@ -1058,6 +1069,7 @@ class DogfoodService:
                             correction,
                             target_file=target_file,
                             critic_feedback=repair_feedback,
+                            contract_context=contract_context,
                         ),
                     },
                 ]
@@ -1196,6 +1208,30 @@ class DogfoodService:
             if total > max_chars:
                 raise DogfoodError("File context exceeds the safety limit")
             parts.append(f"<file path={json.dumps(name)}>\n{content}\n</file>")
+        return "\n\n".join(parts)
+
+    def _planned_contract_context(
+        self, root: Path, files: set[str], *, max_chars: int = 16_000
+    ) -> str:
+        """Render bounded interface context for planned files outside the current target."""
+        names = sorted(files)
+        if not names:
+            return ""
+        wrappers = {
+            name: (f"<contract-file path={json.dumps(name)}>\n", "\n</contract-file>")
+            for name in names
+        }
+        overhead = sum(len(prefix) + len(suffix) for prefix, suffix in wrappers.values())
+        overhead += max(0, len(names) - 1) * 2
+        if overhead >= max_chars:
+            raise DogfoodError("Planned contract metadata exceeds the safety limit")
+        quota = (max_chars - overhead) // len(names)
+        parts = []
+        for name in names:
+            path = root / name
+            content = path.read_text(errors="replace") if path.is_file() else "<new file>"
+            prefix, suffix = wrappers[name]
+            parts.append(prefix + self._bounded_excerpt(content, quota) + suffix)
         return "\n\n".join(parts)
 
     @staticmethod
@@ -1670,6 +1706,7 @@ class DogfoodService:
         target_file: str = "",
         critic_feedback: str = "",
         verification_diagnostic: str = "",
+        contract_context: str = "",
     ) -> str:
         prompt = (
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
@@ -1677,6 +1714,12 @@ class DogfoodService:
         )
         if target_file:
             prompt += f"\n\nReturn exactly one change, for this target path only: {target_file}"
+        if contract_context:
+            prompt += (
+                "\n\nBounded interface context from the other planned files follows. Use it only to keep public "
+                "names, template variables, routes, and test patches consistent; do not change those files in this "
+                f"response:\n{contract_context}"
+            )
         if critic_feedback:
             prompt += (
                 f"\n\nCritic feedback on previous implementation:\n{critic_feedback}"

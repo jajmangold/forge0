@@ -1309,7 +1309,7 @@ async def test_verification_repair_sees_all_planned_file_contracts(tmp_path) -> 
 
     prompt = client.chat_with_usage.await_args.kwargs["messages"][-1]["content"]
     assert '<file path="README.md">' in prompt
-    assert '<file path="contract.py">' in prompt
+    assert '<contract-file path="contract.py">' in prompt
     assert "list_review_pulls" in prompt
 
 
