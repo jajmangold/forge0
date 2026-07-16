@@ -4,6 +4,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
 from app import gitea
 from app.coordination import AgentCoordinator, AgentLock, AgentRole, TaskStatus
@@ -28,7 +29,9 @@ def test_auto_login_can_be_disabled(monkeypatch) -> None:
     response = client.get("/gitea-login", follow_redirects=False)
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/gitea/user/login?redirect_to=%2Fgitea%2F"
+    assert response.headers["location"] == (
+        "http://localhost:3001/gitea/user/login?redirect_to=%2Fgitea%2F"
+    )
 
 
 def test_gitea_login_preserves_safe_destination(monkeypatch) -> None:
@@ -50,7 +53,9 @@ def test_gitea_login_rejects_external_destination(monkeypatch) -> None:
 
     response = client.get("/gitea-login?next=https://example.com", follow_redirects=False)
 
-    assert response.headers["location"] == "/gitea/user/login?redirect_to=%2Fgitea%2F"
+    assert response.headers["location"] == (
+        "http://localhost:3001/gitea/user/login?redirect_to=%2Fgitea%2F"
+    )
 
 
 def test_integrated_gitea_login_is_enabled_for_loopback_default(monkeypatch) -> None:
@@ -69,8 +74,26 @@ def test_integrated_gitea_login_is_enabled_for_loopback_default(monkeypatch) -> 
         )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/gitea/owner/repo"
+    assert response.headers["location"] == "http://localhost:3001/gitea/owner/repo"
     assert "i_like_gitea=session-value" in response.headers["set-cookie"]
+
+
+def test_gitea_proxy_forwards_the_canonical_public_origin() -> None:
+    upstream = Mock(
+        content=b"ok",
+        status_code=200,
+        headers=httpx.Headers({"content-type": "text/plain"}),
+    )
+    with patch("app.main.httpx.AsyncClient") as client_class:
+        request = AsyncMock(return_value=upstream)
+        client_class.return_value.__aenter__.return_value.request = request
+        response = client.get("/gitea/example", headers={"host": "localhost:3999"})
+
+    assert response.status_code == 200
+    forwarded = request.await_args.kwargs["headers"]
+    assert forwarded["Host"] == "localhost:3001"
+    assert forwarded["X-Forwarded-Host"] == "localhost:3001"
+    assert forwarded["X-Forwarded-Proto"] == "http"
 
 
 def test_chat_rejects_empty_queries() -> None:

@@ -6,6 +6,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -102,9 +103,12 @@ async def gitea_proxy(request: Request, path: str):
     headers = {name: value for name, value in request.headers.items() if name.lower() not in excluded_headers}
     headers["Accept-Encoding"] = "identity"  # no compression
 
-    # Tell Gitea the original request came from localhost:3001 (the portal)
-    headers["X-Forwarded-Host"] = request.headers.get("host", "localhost:3001")
-    headers["X-Forwarded-Proto"] = "http"
+    # Gitea and OAuth need one canonical public origin, even when this portal is
+    # running as a shadow instance on another local port.
+    public_origin = urlsplit(gitea.GITEA_PUBLIC_URL)
+    headers["Host"] = public_origin.netloc
+    headers["X-Forwarded-Host"] = public_origin.netloc
+    headers["X-Forwarded-Proto"] = public_origin.scheme
     headers["X-Forwarded-For"] = request.client.host if request.client else "127.0.0.1"
 
     body = await request.body()
@@ -163,10 +167,11 @@ async def gitea_auto_login(request: Request, next: str = "/gitea/"):
     )
     destination = next if safe_destination else "/gitea/"
     if os.getenv("GITEA_AUTO_LOGIN", "true").lower() != "true":
-        from urllib.parse import urlencode
-
         query = urlencode({"redirect_to": destination})
-        return RedirectResponse(url=f"/gitea/user/login?{query}", status_code=302)
+        return RedirectResponse(
+            url=f"{gitea.public_url('user/login')}?{query}",
+            status_code=302,
+        )
 
     gitea_user = os.getenv("GITEA_ADMIN_USER", "agent")
     gitea_pass = os.getenv("GITEA_ADMIN_PASS", "agentpass123")
@@ -182,7 +187,8 @@ async def gitea_auto_login(request: Request, next: str = "/gitea/"):
         )
 
     # Redirect to Gitea, forwarding session cookies
-    response = Response(status_code=302, headers={"Location": destination})
+    public_destination = gitea.public_url(destination.removeprefix("/gitea/"))
+    response = Response(status_code=302, headers={"Location": public_destination})
     # Parse all Set-Cookie headers — keep only the LAST value per cookie name
     # (Gitea sets the same cookie multiple times: first a temp, then the real session)
     seen = {}

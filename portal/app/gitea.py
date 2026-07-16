@@ -11,6 +11,7 @@ import httpx
 
 GITEA_URL = os.getenv("GITEA_URL", "http://gitea:3000")
 GITEA_TOKEN = os.getenv("GITEA_TOKEN", "")
+GITEA_PUBLIC_URL = os.getenv("GITEA_PUBLIC_URL", "http://localhost:3001/gitea/").rstrip("/") + "/"
 
 _headers = {"Authorization": f"token {GITEA_TOKEN}"}
 
@@ -19,6 +20,11 @@ def web_link(path: str = "") -> str:
     """Return a portal login gateway URL for a Gitea UI destination."""
     destination = f"/gitea/{path.lstrip('/')}"
     return f"/gitea-login?{urlencode({'next': destination})}"
+
+
+def public_url(path: str = "") -> str:
+    """Return an absolute URL on Gitea's configured canonical public origin."""
+    return f"{GITEA_PUBLIC_URL}{path.lstrip('/')}"
 
 
 async def _request(

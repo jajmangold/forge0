@@ -64,6 +64,7 @@ services:
       - "127.0.0.1:3001:3001"
     environment:
       GITEA_URL: http://gitea:3000
+      GITEA_PUBLIC_URL: ${GITEA_ROOT_URL:-http://localhost:3001/gitea/}
       GITEA_TOKEN: ${GITEA_API_TOKEN}
       GITEA_ADMIN_USER: ${GITEA_ADMIN_USER:-agent}
       GITEA_ADMIN_PASS: ${GITEA_ADMIN_PASS:-agentpass123}
