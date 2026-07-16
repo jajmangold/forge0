@@ -40,6 +40,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- enqueue bounded discovered issues
 - reuse reproducible release images
 - isolate writable release state
 - enforce per-file target assignment
@@ -81,6 +82,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
