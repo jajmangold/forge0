@@ -58,7 +58,9 @@ release() {
   previous_image=$(docker inspect --format '{{.Image}}' forge0-portal)
   docker tag "$previous_image" "forge0-portal:rollback-${previous_image#sha256:}"
 
-  docker build --tag "$tag" portal
+  if ! docker image inspect "$tag" >/dev/null 2>&1; then
+    docker build --provenance=false --tag "$tag" portal
+  fi
   image=$(docker image inspect --format '{{.Id}}' "$tag")
 
   docker rm -f "$CANARY_NAME" >/dev/null 2>&1 || true
