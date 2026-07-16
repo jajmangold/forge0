@@ -1,86 +1,67 @@
 name: Auto Documentation
+
 on:
   push:
     branches: [main]
     paths:
-      - 'src/**/*.py'
+      - 'portal/**/*.py'
       - 'pyproject.toml'
       - 'README.md'
+  workflow_dispatch:
+
+concurrency:
+  group: auto-documentation-main
+  cancel-in-progress: true
 
 jobs:
-  changelog:
-    name: Generate Changelog
-    runs-on: ubuntu-latest
+  documentation:
+    name: Refresh generated documentation
+    runs-on: forge0-ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
-      - name: Generate Changelog
+      - name: Generate changelog
         run: |
-          # Get conventional commits since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$LAST_TAG" ]; then
-            COMMITS=$(git log $LAST_TAG..HEAD --format="%s" --no-merges)
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -n "$last_tag" ]; then
+            commits=$(git log "$last_tag"..HEAD --format="%s" --no-merges)
           else
-            COMMITS=$(git log --format="%s" --no-merges)
+            commits=$(git log --format="%s" --no-merges)
           fi
-
-          # Parse into categories
-          FEATS=$(echo "$COMMITS" | grep "^feat" | sed 's/^feat[^:]*: //' || true)
-          FIXES=$(echo "$COMMITS" | grep "^fix" | sed 's/^fix[^:]*: //' || true)
-          DOCS=$(echo "$COMMITS" | grep "^docs" | sed 's/^docs[^:]*: //' || true)
-          REFACTORS=$(echo "$COMMITS" | grep "^refactor" | sed 's/^refactor[^:]*: //' || true)
-
-          # Generate CHANGELOG.md
-          cat > CHANGELOG.md << EOF
+          features=$(printf '%s\n' "$commits" | grep '^feat' | sed 's/^feat[^:]*: /- /' || true)
+          fixes=$(printf '%s\n' "$commits" | grep '^fix' | sed 's/^fix[^:]*: /- /' || true)
+          docs=$(printf '%s\n' "$commits" | grep '^docs' | sed 's/^docs[^:]*: /- /' || true)
+          cat > CHANGELOG.md <<EOF
           # Changelog
 
-          All notable changes to this project will be documented in this file.
-
-          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-          and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-          ## [Unreleased]
+          ## Unreleased
 
           ### Added
-          $FEATS
+          ${features:-_None._}
 
           ### Fixed
-          $FIXES
-
-          ### Changed
-          $REFACTORS
+          ${fixes:-_None._}
 
           ### Documentation
-          $DOCS
+          ${docs:-_None._}
           EOF
 
-      - name: Commit changelog
+      - name: Refresh README API section when a generator exists
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git diff --staged --quiet || git commit -m "docs: update CHANGELOG.md"
-          git push || true
+          if [ -f scripts/generate_readme.py ]; then
+            python scripts/generate_readme.py > README.generated.md
+            test -s README.generated.md
+            mv README.generated.md README.md
+          fi
 
-  readme:
-    name: Update README
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Update README section
+      - name: Commit documentation only when changed
         run: |
-          # Auto-generate API section from docstrings
-          if [ -f "scripts/generate_readme.py" ]; then
-            python scripts/generate_readme.py > README_NEW.md
-            if [ -s README_NEW.md ]; then
-              mv README_NEW.md README.md
-              git config user.name "github-actions[bot]"
-              git config user.email "github-actions[bot]@users.noreply.github.com"
-              git add README.md
-              git diff --staged --quiet || git commit -m "docs: auto-update README.md"
-              git push || true
-            fi
+          git config user.name "forge0-docs"
+          git config user.email "forge0-docs@localhost"
+          git add CHANGELOG.md README.md
+          if ! git diff --staged --quiet; then
+            git commit -m "docs: refresh generated documentation"
+            git push
           fi

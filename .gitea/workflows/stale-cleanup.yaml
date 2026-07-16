@@ -1,73 +1,43 @@
 name: Stale Cleanup
+
 on:
   schedule:
-    - cron: '0 0 * * 0'  # Weekly on Sunday
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
+concurrency:
+  group: repository-maintenance
+  cancel-in-progress: false
+
 jobs:
-  stale-issues:
-    name: Cleanup Stale Issues
-    runs-on: ubuntu-latest
+  maintenance:
+    name: Repository maintenance
+    runs-on: forge0-ci
     steps:
-      - name: Find stale issues
-        uses: actions/stale@v9
+      - name: Mark stale issues and pull requests
+        uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639
         with:
           days-before-stale: 30
           days-before-close: 7
+          days-before-pr-stale: 14
+          days-before-pr-close: 7
           stale-issue-label: 'status:stale'
-          stale-issue-message: |
-            This issue has been automatically marked as stale because it has not had recent activity.
-            It will be closed in 7 days if no further activity occurs.
-          close-issue-message: |
-            This issue has been closed due to inactivity.
-          exempt-issue-labels: 'priority:critical,status:blocked'
-          exempt-all-milestones: true
-
-  stale-prs:
-    name: Cleanup Stale PRs
-    runs-on: ubuntu-latest
-    steps:
-      - name: Find stale PRs
-        uses: actions/stale@v9
-        with:
-          days-before-stale: 14
-          days-before-close: 7
           stale-pr-label: 'status:stale'
-          stale-pr-message: |
-            This PR has been automatically marked as stale because it has not had recent activity.
-            It will be closed in 7 days if no further activity occurs.
-          close-pr-message: |
-            This PR has been closed due to inactivity.
+          exempt-issue-labels: 'priority:critical,status:blocked'
           exempt-pr-labels: 'priority:critical,status:blocked'
+          stale-issue-message: 'This issue is stale and will close in 7 days without activity.'
+          stale-pr-message: 'This pull request is stale and will close in 7 days without activity.'
+          close-issue-message: 'Closed automatically after the stale period.'
+          close-pr-message: 'Closed automatically after the stale period.'
 
-  stale-branches:
-    name: Cleanup Stale Branches
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
-      - name: Delete merged branches
+      - name: Remove merged remote branches
         run: |
           git fetch --prune
-          git branch -r --merged origin/main | grep -v main | grep -v HEAD | while read branch; do
-            BRANCH_NAME="${branch#origin/}"
-            echo "Deleting merged branch: $BRANCH_NAME"
-            git push origin --delete "$BRANCH_NAME" || true
-          done
-
-      - name: Delete old unmerged branches
-        run: |
-          git fetch --prune
-          # Find branches older than 30 days
-          git for-each-ref --format='%(refname:short) %(committerdate)' refs/remotes/origin | \
-            sort -k2 | \
-            awk '$2 < "'$(date -d '30 days ago' '+%Y-%m-%d')'" {print $1}' | \
-            grep -v main | \
-            grep -v HEAD | \
-            while read branch; do
-              BRANCH_NAME="${branch#origin/}"
-              echo "Deleting old branch: $BRANCH_NAME"
-              git push origin --delete "$BRANCH_NAME" || true
-            done
+          git branch -r --merged origin/main \
+            | sed 's#^[[:space:]]*origin/##' \
+            | grep -Ev '^(main|HEAD)$' \
+            | while read -r branch; do git push origin --delete "$branch" || true; done

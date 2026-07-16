@@ -38,8 +38,9 @@ documents are not automatically implemented features.
 - Cross-session semantic memory or tree-sitter repository maps.
 - Automatic merging or deployment of agent-authored changes. Self-extension
   intentionally stops at a human-reviewed draft pull request.
-- A bundled Gitea Actions runner. Workflows are supplied, but operators must
-  register a runner appropriate for their Docker security model.
+- A dedicated Gitea Actions runner backed by the versioned
+  `forge0-ci-base:py312-20260716` image. Setup builds that image once, registers
+  the runner, and prevents job containers from receiving the Docker socket.
 - Production authentication, TLS termination, multi-user authorization, and a
   production database. The current deployment is a localhost, single-operator
   development system.

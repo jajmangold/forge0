@@ -116,12 +116,49 @@ export GITEA_API_TOKEN="$TOKEN"
 export FORGE0_OPERATOR_TOKEN="$OPERATOR_TOKEN"
 export FORGE0_WEBHOOK_SECRET="$WEBHOOK_SECRET"
 
+CI_IMAGE="forge0-ci-base:py312-20260716"
+RUNNER_IMAGE="docker.io/gitea/act_runner:0.2.13@sha256:8477d5b61b655caad4449888bae39f1f34bebd27db56cb15a62dccb3dcf3a944"
+
+echo "==> Preparing immutable CI base image ${CI_IMAGE}..."
+if ! docker image inspect "${CI_IMAGE}" >/dev/null 2>&1; then
+  docker build --pull=false -f ci/Dockerfile -t "${CI_IMAGE}" portal
+else
+  echo "    Existing versioned image found; refusing to rebuild it during setup."
+fi
+CI_IMAGE_DIGEST=$(docker image inspect "${CI_IMAGE}" --format '{{index .RepoDigests 0}}')
+if [ -z "${CI_IMAGE_DIGEST}" ]; then
+  echo "ERROR: ${CI_IMAGE} has no content digest after build." >&2
+  exit 1
+fi
+echo "    Locked runner image: ${CI_IMAGE_DIGEST}"
+
+echo "==> Registering the dedicated Forge0 Actions runner..."
+docker volume create forge0-runner-data >/dev/null
+if ! docker run --rm --entrypoint="" -v forge0-runner-data:/data "${RUNNER_IMAGE}" \
+  test -s /data/.runner; then
+  RUNNER_TOKEN=$(curl -fsS -X POST -H "Authorization: token ${TOKEN}" \
+    "http://localhost:3000/api/v1/admin/actions/runners/registration-token" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+  docker run --rm --entrypoint="" \
+    --network forge0_default \
+    -v forge0-runner-data:/data \
+    -v "${PWD}/runner/config.yaml:/config.yaml:ro" \
+    "${RUNNER_IMAGE}" \
+    act_runner --config /config.yaml register --no-interactive \
+      --instance http://gitea:3000/ \
+      --token "${RUNNER_TOKEN}" \
+      --name forge0-ci \
+      --labels "forge0-ci:docker://${CI_IMAGE_DIGEST}"
+else
+  echo "    Runner registration already exists."
+fi
+
 echo ""
 echo "============================================"
 
 echo "==> Starting the complete core stack with the generated credentials..."
 docker compose --env-file .env --env-file .env.generated up -d gitea searxng
-docker compose --env-file .env --env-file .env.generated up -d --force-recreate --no-deps portal
+docker compose --env-file .env --env-file .env.generated up -d --force-recreate --no-deps portal runner
 
 SELF_REPO="${FORGE0_SELF_REPO:-agent/forge0}"
 SELF_OWNER="${SELF_REPO%%/*}"

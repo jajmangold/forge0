@@ -1,97 +1,70 @@
 name: PR Validation
+
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Portal Quality Gates
-    runs-on: ubuntu-latest
+  validate:
+    name: Validate review-ready change
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
+    runs-on: forge0-ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r portal/requirements.txt -r portal/requirements-dev.txt
-      - name: Unit tests
-        run: pytest
-      - name: Lint
-        run: ruff check .
-      - name: Type check
-        run: pyright portal/app
-      - name: Validate Compose
-        run: docker compose config --quiet
-
-  validate-branch:
-    name: Validate Branch Name
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check branch naming
-        run: |
-          BRANCH="${{ github.head_ref }}"
-          if [[ ! "$BRANCH" =~ ^(agent|feature|fix|docs|refactor)/ ]]; then
-            echo "❌ Branch name '$BRANCH' doesn't follow convention"
-            echo "Required format: agent/, feature/, fix/, docs/, refactor/"
-            exit 1
-          fi
-          echo "✅ Branch name is valid"
-
-  validate-commits:
-    name: Validate Commit Messages
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
-      - name: Check conventional commits
+      - name: Enforce no-churn pipeline invariants
+        run: python ci/verify.py
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Lint
+        run: ruff check portal/app portal/tests ci/verify.py
+
+      - name: Type check
+        run: pyright portal/app
+
+      - name: Validate Compose without a daemon
         run: |
-          INVALID=0
-          while read -r hash msg; do
-            if [[ ! "$msg" =~ ^(feat|fix|docs|test|refactor|perf|chore|ci)(\(.+\))?!?: ]]; then
-              echo "❌ Invalid commit message: $msg"
-              echo "   Must follow: type(scope): description"
-              INVALID=1
+          test ! -S /var/run/docker.sock
+          docker compose config --quiet
+
+      - name: Validate branch name
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if [[ ! "$BRANCH" =~ ^(agent|feature|fix|docs|refactor)/ ]]; then
+            echo "Branch '$BRANCH' must use agent/, feature/, fix/, docs/, or refactor/."
+            exit 1
+          fi
+
+      - name: Validate commit messages
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          invalid=0
+          while read -r hash message; do
+            if [[ ! "$message" =~ ^(feat|fix|docs|test|refactor|perf|chore|ci)(\(.+\))?\!?: ]]; then
+              echo "Invalid commit $hash: $message"
+              invalid=1
             fi
           done < <(git log origin/main..HEAD --format="%H %s")
-          if [ "$INVALID" -eq 1 ]; then
-            exit 1
-          fi
-          echo "✅ All commit messages are valid"
+          test "$invalid" -eq 0
 
-  validate-pr-template:
-    name: Validate PR Template
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check PR description
+      - name: Validate PR metadata
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          BODY="${{ github.event.pull_request.body }}"
-          if [[ -z "$BODY" ]]; then
-            echo "❌ PR description is empty"
-            echo "Please fill out the PR template"
-            exit 1
-          fi
-          if [[ ! "$BODY" =~ "## Summary" ]]; then
-            echo "❌ PR must have a Summary section"
-            exit 1
-          fi
-          if [[ ! "$BODY" =~ "## Related Issues" ]]; then
-            echo "❌ PR must link to related issues"
-            exit 1
-          fi
-          echo "✅ PR template is valid"
-
-  validate-labels:
-    name: Validate Labels
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check required labels
-        run: |
-          LABELS="${{ github.event.pull_request.labels.*.name }}"
-          if [[ ! "$LABELS" =~ "type:" ]]; then
-            echo "❌ PR must have a type: label"
-            exit 1
-          fi
-          echo "✅ Labels are valid"
+          test -n "$PR_BODY" || { echo "PR description is empty."; exit 1; }
+          [[ "$PR_BODY" == *"## Summary"* ]] || { echo "PR needs a Summary section."; exit 1; }
+          [[ "$PR_BODY" == *"## Related Issues"* ]] || { echo "PR needs a Related Issues section."; exit 1; }
+          [[ "$PR_LABELS" == *"type:"* ]] || { echo "PR needs a type: label."; exit 1; }
