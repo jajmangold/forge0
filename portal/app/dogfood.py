@@ -92,6 +92,7 @@ class DogfoodConfig:
     keep_workspaces: bool = False
     max_critic_repairs: int = 1
     max_verification_repairs: int = 1
+    max_concurrent_runs: int = 1
 
     @property
     def full_name(self) -> str:
@@ -114,6 +115,9 @@ class DogfoodConfig:
         max_verification_repairs = int(os.getenv("FORGE0_MAX_VERIFICATION_REPAIRS", "1"))
         if max_verification_repairs not in {0, 1}:
             raise ValueError("FORGE0_MAX_VERIFICATION_REPAIRS must be 0 or 1")
+        max_concurrent_runs = int(os.getenv("FORGE0_MAX_CONCURRENT_RUNS", "1"))
+        if not 1 <= max_concurrent_runs <= 4:
+            raise ValueError("FORGE0_MAX_CONCURRENT_RUNS must be between 1 and 4")
         return cls(
             self_owner=owner,
             self_repo=repo,
@@ -133,6 +137,7 @@ class DogfoodConfig:
             keep_workspaces=os.getenv("FORGE0_KEEP_WORKSPACES", "false").lower() == "true",
             max_critic_repairs=max_critic_repairs,
             max_verification_repairs=max_verification_repairs,
+            max_concurrent_runs=max_concurrent_runs,
         )
 
 
@@ -165,6 +170,8 @@ class RunRecord:
     correction_errors: list[str] = field(default_factory=list)
     llm_budget_admissions: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
+    restart_count: int = 0
+    recovery_events: list[dict[str, str]] = field(default_factory=list)
     error: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -221,14 +228,42 @@ class RunStore:
         return None
 
     def recover_interrupted(self) -> int:
-        """Release runs whose in-process worker disappeared during a restart."""
+        """Requeue restart-safe runs and fail closed at the publication boundary."""
         recovered = 0
         for record in self.list(limit=500):
-            if record.status in ACTIVE_STATUSES:
+            if record.status not in ACTIVE_STATUSES or record.status is RunStatus.QUEUED:
+                continue
+            interrupted_status = record.status
+            record.restart_count += 1
+            record.recovery_events.append(
+                {"at": datetime.now(UTC).isoformat(), "status": interrupted_status.value}
+            )
+            record.recovery_events = record.recovery_events[-20:]
+            if interrupted_status is RunStatus.PUBLISHING:
                 record.status = RunStatus.FAILED
-                record.error = "Run was interrupted by a portal restart; it is safe to trigger again"
-                self.save(record)
-                recovered += 1
+                record.error = (
+                    "Run was interrupted while publishing; operator review is required to avoid a "
+                    "duplicate branch or pull request"
+                )
+            else:
+                record.status = RunStatus.QUEUED
+                record.plan = {}
+                record.changed_files = []
+                record.verification = []
+                record.verification_coverage = {}
+                record.critic_feedback = ""
+                record.critic_findings = []
+                record.critic_acceptance_reviews = []
+                record.critic_reviews = []
+                record.critic_repair_count = 0
+                record.verification_repair_count = 0
+                record.verification_failure_diagnostics = []
+                record.correction_errors = []
+                record.llm_budget_admissions = []
+                record.usage = {}
+                record.error = f"Recovered from interrupted {interrupted_status.value} phase"
+            self.save(record)
+            recovered += 1
         return recovered
 
 
@@ -542,6 +577,72 @@ class DogfoodService:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._supervisor_task: asyncio.Task[None] | None = None
+        self._stop_supervisor = asyncio.Event()
+
+    async def start(self) -> None:
+        """Start the durable queue supervisor and immediately recover queued work."""
+        if self._supervisor_task is not None and not self._supervisor_task.done():
+            return
+        self._stop_supervisor = asyncio.Event()
+        await self._schedule_queued()
+        self._supervisor_task = asyncio.create_task(
+            self._supervise(), name="forge0-dogfood-supervisor"
+        )
+
+    async def stop(self) -> None:
+        """Stop supervision and cancel workers while leaving durable phase state intact."""
+        self._stop_supervisor.set()
+        if self._supervisor_task is not None:
+            await asyncio.gather(self._supervisor_task, return_exceptions=True)
+            self._supervisor_task = None
+        workers = list(self._tasks.values())
+        for task in workers:
+            task.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    async def _supervise(self) -> None:
+        while not self._stop_supervisor.is_set():
+            try:
+                await asyncio.wait_for(self._stop_supervisor.wait(), timeout=30)
+            except TimeoutError:
+                await self._schedule_queued()
+
+    async def _schedule_queued(self) -> None:
+        for queued in reversed(self.store.list(limit=500)):
+            if len(self._tasks) >= self.config.max_concurrent_runs:
+                return
+            if queued.status is not RunStatus.QUEUED or queued.id in self._tasks:
+                continue
+            try:
+                issue = await gitea.get_issue(queued.owner, queued.repo, queued.issue_number)
+                self._validate_target(queued.owner, queued.repo)
+                self._validate_issue(issue)
+            except DogfoodError as exc:
+                queued.status = RunStatus.FAILED
+                queued.error = f"Recovered run is no longer valid: {self._safe_error(exc)}"
+                self.store.save(queued)
+                continue
+            except Exception as exc:
+                queued.error = f"Queue retry deferred: {self._safe_error(exc)}"
+                self.store.save(queued)
+                continue
+            async with self._lock:
+                current = self.store.load(queued.id)
+                if current is None or current.status is not RunStatus.QUEUED:
+                    continue
+                workspace = self.workspace_root / current.id
+                if workspace.exists():
+                    shutil.rmtree(workspace)
+                self._schedule(current, issue)
+
+    def _schedule(self, record: RunRecord, issue: dict[str, Any]) -> None:
+        task = asyncio.create_task(
+            self._execute(record, issue), name=f"forge0-dogfood-{record.id}"
+        )
+        self._tasks[record.id] = task
+        task.add_done_callback(lambda _task, key=record.id: self._tasks.pop(key, None))
 
     def list_runs(self, limit: int = 50) -> list[RunRecord]:
         return self.store.list(limit)
@@ -570,9 +671,8 @@ class DogfoodService:
                 branch=f"agent/{issue_number}-{slug or 'task'}-{run_id[-4:]}",
             )
             self.store.save(record)
-            task = asyncio.create_task(self._execute(record, issue), name=f"forge0-dogfood-{run_id}")
-            self._tasks[run_id] = task
-            task.add_done_callback(lambda _task, key=run_id: self._tasks.pop(key, None))
+            if len(self._tasks) < self.config.max_concurrent_runs:
+                self._schedule(record, issue)
             return record
 
     def verify_operator_token(self, supplied: str) -> bool:
