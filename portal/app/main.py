@@ -8,6 +8,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -543,6 +544,73 @@ async def lab_page(request: Request):
 async def experiments_partial(request: Request):
     return templates.TemplateResponse(request, "_experiments.html", {
         "experiments": get_experiment_queue().list(),
+    })
+
+
+@app.get("/experiments/{job_id}", response_class=HTMLResponse)
+async def experiment_detail(request: Request, job_id: str):
+    """Render a bounded, human-readable projection of one durable experiment."""
+    record = get_experiment_queue().get(job_id)
+    if record is None:
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "title": "Experiment not found",
+                "message": "The experiment id is unknown or its durable record is no longer available.",
+                "status_code": 404,
+                "page": "lab",
+            },
+            status_code=404,
+        )
+
+    result = record.result if isinstance(record.result, dict) else {}
+    objectives = result.get("objectives", [])
+    if not isinstance(objectives, list):
+        objectives = []
+    frontier = result.get("frontier", result.get("pareto_frontier", []))
+    if not isinstance(frontier, list):
+        frontier = []
+    frontier_ids = {
+        item.get("id") for item in frontier if isinstance(item, dict) and item.get("id") is not None
+    }
+    frontier_indexes = {
+        item for item in frontier if isinstance(item, int) and not isinstance(item, bool)
+    }
+    candidates = []
+    raw_candidates = result.get("candidates", [])
+    if isinstance(raw_candidates, list):
+        for index, candidate in enumerate(raw_candidates):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = candidate.get("id")
+            candidates.append({
+                "index": index,
+                "id": candidate_id or f"Candidate {index + 1}",
+                "metrics": candidate.get("metrics") if isinstance(candidate.get("metrics"), dict) else {},
+                "feasible": candidate.get("feasible", True),
+                "frontier": (
+                    index in frontier_indexes
+                    or (candidate_id is not None and candidate_id in frontier_ids)
+                    or candidate in frontier
+                ),
+                "error": str(candidate.get("error") or "")[:500],
+            })
+    raw_wandb = result.get("wandb")
+    wandb: dict[str, Any] = raw_wandb if isinstance(raw_wandb, dict) else {}
+    safe_wandb = {
+        key: str(wandb[key])[:500]
+        for key in ("mode", "run_id", "status", "error")
+        if wandb.get(key) is not None
+    }
+    return templates.TemplateResponse(request, "experiment_detail.html", {
+        "experiment": record,
+        "result": result,
+        "objectives": objectives,
+        "candidates": candidates,
+        "wandb": safe_wandb,
+        "bounded_error": str(record.error or "")[:1000],
+        "page": "lab",
     })
 
 

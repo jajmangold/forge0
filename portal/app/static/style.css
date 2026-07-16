@@ -146,6 +146,21 @@ kbd, .key-button { padding: 2px 7px; border: 1px solid var(--border-strong); bor
 .lab-card p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 .lab-form { display: grid; gap: 14px; padding: 18px; }
 .lab-form-actions { display: flex; align-items: center; gap: 12px; }
+.experiment-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+.experiment-status { font-size: clamp(17px, 2vw, 24px); text-transform: capitalize; }
+.experiment-error { margin: 0 0 20px; }
+.candidate-table td { vertical-align: top; }
+.direction { display: block; margin-top: 2px; color: var(--text-muted); font-size: 9px; font-weight: 650; letter-spacing: 0; text-transform: lowercase; }
+.frontier-badge { display: inline-flex; padding: 4px 8px; border-radius: 99px; background: var(--success-soft); color: var(--success); font-size: 11px; font-weight: 750; }
+.metric-list { display: grid; min-width: 160px; gap: 4px; font-size: 11px; }
+.metric-list span { overflow-wrap: anywhere; }
+.muted { color: var(--text-muted); }
+.detail-list { margin: 0; }
+.detail-list > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 11px 16px; border-top: 1px solid var(--border); }
+.detail-list > div:first-child { border-top: 0; }
+.detail-list dt { color: var(--text-muted); font-size: 11px; text-transform: capitalize; }
+.detail-list dd { margin: 0; color: var(--text); font: 12px var(--font-mono); text-align: right; overflow-wrap: anywhere; }
+.empty-state.compact { padding: 22px 16px; }
 .field { display: grid; width: 100%; gap: 6px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .field input, .field textarea { width: 100%; padding: 10px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); color: var(--text); font: 13px var(--font-sans); outline: none; }
 .field textarea { resize: vertical; }
@@ -284,12 +299,14 @@ td a { font-weight: 650; text-decoration: none; }
   .page-header { flex-direction: column; }
   .page-actions { justify-content: flex-start; }
   .detail-grid, .safety-grid { grid-template-columns: 1fr; }
+  .experiment-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .repo-actions { width: 100%; margin-left: 0; }
 }
 @media (max-width: 640px) {
   .logo-text { font-size: 16px; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lab-grid { grid-template-columns: 1fr; }
+  .experiment-summary { grid-template-columns: 1fr; }
   .stat-card { padding: 14px; }
   .repos-grid { grid-template-columns: 1fr; }
   .repo-card, .repo-card:nth-child(n) { min-height: 0; border-right: 0; }

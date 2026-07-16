@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ experiment.id }} · Forge0{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow">Bounded experiment</div>
+    <h1>{{ experiment.manifest.harness }}</h1>
+    <p><code>{{ experiment.id }}</code></p>
+  </div>
+  <div class="page-actions"><a class="btn" href="/lab">← Research lab</a></div>
+</div>
+
+<div class="experiment-summary" aria-label="Experiment summary">
+  <div class="stat-card"><div class="stat-value experiment-status">{{ experiment.status }}</div><div class="stat-label">Status</div></div>
+  <div class="stat-card"><div class="stat-value">{{ experiment.resource }}</div><div class="stat-label">Resource</div></div>
+  <div class="stat-card"><div class="stat-value">{% if result.elapsed_seconds is defined %}{{ result.elapsed_seconds }}s{% else %}—{% endif %}</div><div class="stat-label">Elapsed</div></div>
+  <div class="stat-card"><div class="stat-value">{{ candidates|selectattr('frontier')|list|length }}</div><div class="stat-label">Frontier candidates</div></div>
+</div>
+
+{% if bounded_error %}<div class="error-text experiment-error" role="alert">{{ bounded_error }}</div>{% endif %}
+
+<div class="detail-grid">
+  <section class="panel" aria-labelledby="candidate-title">
+    <div class="panel-header"><div><h2 id="candidate-title">Candidates</h2><div class="panel-subtitle">Every measured candidate; non-dominated tradeoffs are marked Frontier</div></div></div>
+    {% if candidates %}
+    <div class="table-scroll">
+      <table class="candidate-table">
+        <thead><tr><th>Candidate</th><th>Set</th><th>Feasible</th>{% for objective in objectives %}<th>{{ objective.name }} <span class="direction">{{ objective.direction }}</span></th>{% endfor %}<th>Other metrics</th></tr></thead>
+        <tbody>
+        {% for candidate in candidates %}
+          <tr>
+            <td><strong>{{ candidate.id }}</strong>{% if candidate.error %}<div class="error-text">{{ candidate.error }}</div>{% endif %}</td>
+            <td>{% if candidate.frontier %}<span class="frontier-badge">Frontier</span>{% else %}<span class="muted">Explored</span>{% endif %}</td>
+            <td>{{ "yes" if candidate.feasible else "no" }}</td>
+            {% for objective in objectives %}<td>{% if objective.name in candidate.metrics %}{{ candidate.metrics[objective.name] }}{% else %}—{% endif %}</td>{% endfor %}
+            <td><div class="metric-list">{% for name, value in candidate.metrics.items() %}{% if not objectives|selectattr('name', 'equalto', name)|list %}<span><code>{{ name }}</code> {{ value }}</span>{% endif %}{% endfor %}</div></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="empty-state">No candidate measurements are available yet.</div>{% endif %}
+  </section>
+
+  <aside>
+    <section class="panel">
+      <div class="panel-header"><h2>Manifest budgets</h2></div>
+      <dl class="detail-list">
+        <div><dt>Method</dt><dd>{{ experiment.manifest.method }}</dd></div>
+        <div><dt>Seed</dt><dd>{{ experiment.manifest.seed }}</dd></div>
+        {% for name, value in experiment.manifest.budget.items() %}<div><dt>{{ name|replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+      </dl>
+    </section>
+    <section class="panel">
+      <div class="panel-header"><h2>Objectives</h2></div>
+      {% if objectives %}<dl class="detail-list">{% for objective in objectives %}<div><dt>{{ objective.name }}</dt><dd>{{ objective.direction }}</dd></div>{% endfor %}</dl>{% else %}<div class="empty-state compact">No objective set reported.</div>{% endif %}
+    </section>
+    {% if wandb %}
+    <section class="panel">
+      <div class="panel-header"><h2>Weights &amp; Biases</h2></div>
+      <dl class="detail-list">{% for name, value in wandb.items() %}<div><dt>{{ name|replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>
+    </section>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}
