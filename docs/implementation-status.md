@@ -63,13 +63,12 @@ as deployed on canonical main.
   remaining run budget and a call is refused before provider invocation when
   it cannot fit. Provider-reported usage remains authoritative after each
   admitted call and still fails a run if the configured budget is exceeded.
-- **Admission audit.** Every admitted or budget-refused preflight is persisted
-  in `llm_budget_admissions` before provider invocation or refusal. Each entry
-  records only its 1-based sequence, bounded purpose, pre-call usage/budget,
-  prompt estimate, requested and admitted completion caps, and decision
-  boolean; no prompt, response, issue, path, model output, or credential
-  content is stored. The ledger is limited to 100 events per run and a full
-  ledger refuses another provider call.
+- **Admission audit.** Every admitted or budget-refused preflight is persisted in
+  `llm_budget_admissions` before provider invocation or refusal. Entries record
+  only a 1-based sequence, bounded purpose, pre-call usage/budget, prompt
+  estimate, requested/admitted completion caps, and decision boolean; no prompt,
+  response, issue, path, model output, or credential content. The 100-event
+  per-run limit refuses another provider call when full.
 - **Path-aware coverage reporting.** The fixed repository suite still runs, while
   changed paths are classified as Python-covered, documentation review-only, or
   unsupported and requiring explicit manual acceptance. Repository-level health
