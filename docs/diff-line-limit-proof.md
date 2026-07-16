@@ -1,4 +1,4 @@
 - Parsing: The optional diff line limit is parsed directly from the issue’s Diff Line Limit heading.
-- Minimum-of-caps selection: The effective cap is the minimum of the issue limit and the path-aware repository cap.
-- Repair rechecks: After any automatic repair, the diff is rechecked against the limit to confirm compliance.
+- Effective-cap selection: The effective cap is the minimum of the issue limit and the path-aware repository cap.
+- Post-repair rechecks: After any automatic repair, the diff is rechecked against the limit to confirm compliance.
 - Pre-publication rejection: Changes exceeding the limit are rejected before commit, push, or pull request creation.
