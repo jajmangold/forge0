@@ -1,0 +1,30 @@
+<div class="stats">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.total_repos }}</div>
+    <div class="stat-label">Repos</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.active_today }}</div>
+    <div class="stat-label">Active Today</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.active_week }}</div>
+    <div class="stat-label">Active This Week</div>
+  </div>
+  <div class="stat-card {% if actions_stats.running > 0 %}pulse{% endif %}">
+    <div class="stat-value">{{ actions_stats.running }}</div>
+    <div class="stat-label">Running</div>
+  </div>
+  <div class="stat-card {% if actions_stats.queued > 0 %}warn{% endif %}">
+    <div class="stat-value">{{ actions_stats.queued }}</div>
+    <div class="stat-label">Queued</div>
+  </div>
+  <div class="stat-card ok">
+    <div class="stat-value">{{ actions_stats.success }}</div>
+    <div class="stat-label">Passed</div>
+  </div>
+  <div class="stat-card {% if actions_stats.failure > 0 %}err{% endif %}">
+    <div class="stat-value">{{ actions_stats.failure }}</div>
+    <div class="stat-label">Failed</div>
+  </div>
+</div>

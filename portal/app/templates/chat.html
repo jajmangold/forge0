@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat - {{ owner }}/{{ repo }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 60px);
+        }
+        
+        .chat-header {
+            padding: var(--space-md);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+        }
+        
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-md);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-md);
+        }
+        
+        .message {
+            max-width: 80%;
+            padding: var(--space-md);
+            border-radius: var(--radius-lg);
+            animation: fadeIn 0.2s ease-in;
+        }
+        
+        .message-user {
+            align-self: flex-end;
+            background: var(--accent);
+            color: white;
+        }
+        
+        .message-assistant {
+            align-self: flex-start;
+            background: var(--bg-tertiary);
+        }
+        
+        .message-content {
+            white-space: pre-wrap;
+        }
+        
+        .message-content code {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.9em;
+        }
+        
+        .message-content pre {
+            background: var(--bg-primary);
+            padding: var(--space-md);
+            border-radius: var(--radius-sm);
+            overflow-x: auto;
+            margin: var(--space-sm) 0;
+        }
+        
+        .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .chat-input {
+            padding: var(--space-md);
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: var(--space-sm);
+        }
+        
+        .chat-input input {
+            flex: 1;
+            padding: var(--space-md);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 1rem;
+            outline: none;
+        }
+        
+        .chat-input input:focus {
+            border-color: var(--accent);
+        }
+        
+        .chat-input button {
+            padding: var(--space-md) var(--space-lg);
+            background: var(--accent);
+            border: none;
+            border-radius: var(--radius-md);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .chat-input button:hover {
+            background: var(--accent-hover);
+        }
+        
+        .chat-input button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: var(--space-sm);
+        }
+        
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+        
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+        }
+        
+        .suggestion {
+            padding: var(--space-sm) var(--space-md);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .suggestion:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="header-left">
+                <a href="/repo/{{ owner }}/{{ repo }}" class="logo">
+                    <span class="logo-icon">←</span>
+                    <span class="logo-text">{{ owner }}/{{ repo }}</span>
+                </a>
+            </div>
+            <div class="header-center">
+                <span style="color: var(--text-secondary)">💬 Chat with Project</span>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+            </div>
+        </header>
+
+        <div class="chat-container">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message message-assistant">
+                    <div class="message-content">
+                        👋 Hi! I'm your project assistant. I can help you understand the codebase, find issues, explain code, and more.
+
+What would you like to know?
+                    </div>
+                </div>
+                
+                <div class="suggestions">
+                    <div class="suggestion" onclick="askSuggestion('What does this project do?')">
+                        What does this project do?
+                    </div>
+                    <div class="suggestion" onclick="askSuggestion('Show me the main entry points')">
+                        Show me the main entry points
+                    </div>
+                    <div class="suggestion" onclick="askSuggestion('What are the open issues?')">
+                        What are the open issues?
+                    </div>
+                    <div class="suggestion" onclick="askSuggestion('Explain the project structure')">
+                        Explain the project structure
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input">
+                <input type="text" 
+                       id="chatInput" 
+                       placeholder="Ask about the project..."
+                       onkeypress="if(event.key==='Enter')sendMessage()">
+                <button onclick="sendMessage()" id="sendBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const owner = "{{ owner }}";
+        const repo = "{{ repo }}";
+        let history = [];
+        
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+        
+        function askSuggestion(text) {
+            document.getElementById('chatInput').value = text;
+            sendMessage();
+        }
+        
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const query = input.value.trim();
+            if (!query) return;
+            
+            // Add user message
+            addMessage(query, 'user');
+            input.value = '';
+            
+            // Show typing indicator
+            const typingId = addTypingIndicator();
+            
+            // Disable send button
+            document.getElementById('sendBtn').disabled = true;
+            
+            try {
+                const response = await fetch(`/api/chat/${owner}/${repo}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, history })
+                });
+                
+                const data = await response.json();
+                
+                // Remove typing indicator
+                removeTypingIndicator(typingId);
+                
+                // Add assistant message
+                addMessage(data.response, 'assistant');
+                
+                // Update history
+                history.push({ role: 'user', content: query });
+                history.push({ role: 'assistant', content: data.response });
+                
+            } catch (error) {
+                removeTypingIndicator(typingId);
+                addMessage('Sorry, something went wrong. Please try again.', 'assistant');
+            }
+            
+            // Re-enable send button
+            document.getElementById('sendBtn').disabled = false;
+        }
+        
+        function addMessage(content, role) {
+            const messages = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = `message message-${role}`;
+            
+            // Simple markdown rendering
+            let html = content
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+            
+            div.innerHTML = `<div class="message-content">${html}</div>`;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function addTypingIndicator() {
+            const messages = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = 'message message-assistant';
+            div.id = 'typing-' + Date.now();
+            div.innerHTML = `
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            `;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+            return div.id;
+        }
+        
+        function removeTypingIndicator(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+        
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
+</body>
+</html>

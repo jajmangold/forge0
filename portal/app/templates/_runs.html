@@ -1,0 +1,48 @@
+{% if runs %}
+<div class="runs-list">
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Workflow</th>
+        <th>Repository</th>
+        <th>Branch</th>
+        <th>Trigger</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr class="run-row">
+        <td>
+          {% if run.status == 'success' %}
+            <span class="status-dot ok"></span>success
+          {% elif run.status == 'failure' %}
+            <span class="status-dot err"></span>failure
+          {% elif run.status in ('running', 'waiting') %}
+            <span class="status-dot running"></span>running
+          {% elif run.status == 'cancelled' %}
+            <span class="status-dot cancelled"></span>cancelled
+          {% elif run.status == 'queued' %}
+            <span class="status-dot queued"></span>queued
+          {% else %}
+            <span class="status-dot"></span>{{ run.status }}
+          {% endif %}
+        </td>
+        <td>{{ run.name or run.workflow_id or '—' }}</td>
+        <td>
+          {% if run.repository %}
+            <a href="/repo/{{ run.repository.owner.login }}/{{ run.repository.name }}">{{ run.repository.full_name }}</a>
+          {% else %}—{% endif %}
+        </td>
+        <td><code>{{ run.head_branch or '—' }}</code></td>
+        <td>{{ run.event or '—' }}</td>
+        <td>{{ run.updated_at | time_ago }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">No workflow runs yet</div>
+{% endif %}

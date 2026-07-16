@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Forge0 — Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+
+  <div class="stats-bar" id="stats-bar"
+       hx-get="/partials/stats" hx-trigger="every 8s" hx-swap="innerHTML">
+    {% include "_stats.html" %}
+  </div>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Repositories</h2>
+      <span class="badge">{{ repos|length }}</span>
+    </div>
+    <div id="repos-grid"
+         hx-get="/partials/repos" hx-trigger="every 15s" hx-swap="innerHTML">
+      {% include "_repos.html" %}
+    </div>
+  </section>
+
+</div>
+{% endblock %}

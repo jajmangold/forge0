@@ -1,0 +1,141 @@
+services:
+  gitea:
+    image: gitea/gitea:latest
+    container_name: forge0
+    restart: unless-stopped
+    mem_limit: 4g
+    mem_reservation: 1g
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:2222:22"
+    volumes:
+      - ./data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__database__PATH: /data/gitea/gitea.db
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__security__SECRET_KEY: ${GITEA_SECRET_KEY:-auto}
+      GITEA__security__INTERNAL_TOKEN: ${GITEA_INTERNAL_TOKEN:-auto}
+      GITEA__security__ALLOWED_HOST_LIST: "*"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+      GITEA__server__DOMAIN: ${GITEA_DOMAIN:-localhost}
+      GITEA__server__ROOT_URL: ${GITEA_ROOT_URL:-http://localhost:3001/gitea/}
+      GITEA__server__LOCAL_ROOT_URL: ${GITEA_ROOT_URL:-http://localhost:3001/gitea/}
+      GITEA__server__PUBLIC_URL_DETECTION: "never"
+      GITEA__server__HTTP_PORT: "3000"
+      GITEA__server__SSH_PORT: ${GITEA_SSH_PORT:-2222}
+      GITEA__server__SSH_DOMAIN: ${GITEA_DOMAIN:-localhost}
+      GITEA__server__LFS_START_SERVER: "true"
+      GITEA__server__OFFLINE_MODE: "false"
+      GITEA__DEFAULT__RUN_MODE: "prod"
+      GITEA__api__ENABLE_SWAGGER: "true"
+      GITEA__api__MAX_RESPONSE_ITEMS: 1000
+      GITEA__webhook__SKIP_TLS_VERIFY: "true"
+      GITEA__repository__DEFAULT_BRANCH: main
+      GITEA__repository__ENABLE_PUSH_CREATE_USER: "true"
+      GITEA__repository__ENABLE_PUSH_CREATE_ORG: "true"
+      GITEA__repository__DISABLE_STARS: "true"
+      GITEA__ui__DEFAULT_SHOW_FULL_NAME: "false"
+      GITEA__mailer__ENABLED: "false"
+      GITEA__log__MODE: console
+      GITEA__log__LEVEL: Info
+      GITEA__i18n__LANGS: en-US
+      GITEA__i18n__NAMES: English
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://localhost:3000/api/v1/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  portal:
+    build:
+      context: ./portal
+      dockerfile: ../containers/base-python/Dockerfile
+    image: forge0-portal:latest
+    container_name: forge0-portal
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 128m
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      GITEA_URL: http://gitea:3000
+      GITEA_TOKEN: ${GITEA_API_TOKEN}
+      GITEA_ADMIN_USER: ${GITEA_ADMIN_USER:-agent}
+      GITEA_ADMIN_PASS: ${GITEA_ADMIN_PASS:-agentpass123}
+      SEARXNG_URL: http://searxng:8080
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}
+      LLM_PLANNER_MODEL: ${LLM_PLANNER_MODEL:-mimo-v2.5-pro}
+      LLM_WORKER_MODEL: ${LLM_WORKER_MODEL:-mimo-v2.5}
+      LLM_CRITIC_MODEL: ${LLM_CRITIC_MODEL:-mimo-v2.5}
+      WANDB_URL: http://wandb:8080
+      WANDB_PASSWORD: ${WANDB_PASSWORD}
+    depends_on:
+      gitea:
+        condition: service_healthy
+      wandb:
+        condition: service_healthy
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: forge0-search
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 128m
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+      - searxng-data:/var/cache/searxng:rw
+    environment:
+      SEARXNG_BASE_URL: "http://localhost:8888/"
+      SEARXNG_SECRET: "${SEARXNG_SECRET_KEY:-forge0-super-secret-key-change-me}"
+
+  wandb:
+    image: wandb/local:latest
+    container_name: forge0-wandb
+    restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 512m
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - wandb-data:/vol
+    environment:
+      LOCAL_USERNAME: admin
+      LOCAL_PASSWORD: ${WANDB_PASSWORD:-forge0-wandb-admin}
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  optuna:
+    image: python:3.12-slim
+    container_name: forge0-optuna
+    restart: unless-stopped
+    mem_limit: 1g
+    mem_reservation: 256m
+    command: >
+      sh -c "pip install --no-cache-dir optuna && python -c \"
+import optuna
+import os
+study = optuna.create_study(
+    study_name='forge0',
+    storage='sqlite:///data/optuna.db',
+    load_if_exists=True
+)
+print('Optuna study ready')
+\""
+    volumes:
+      - optuna-data:/data
+
+volumes:
+  searxng-data:
+  wandb-data:
+  optuna-data:

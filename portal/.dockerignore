@@ -1,0 +1,12 @@
+.git
+docs
+tests
+*.md
+.env
+.env.*
+__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+searxng
+data

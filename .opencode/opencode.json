@@ -1,0 +1,310 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "docs/docker-build-standards.md",
+    "docs/development-methodology.md",
+    "docs/agent-roles.md",
+    "docs/project-conventions.md"
+  ],
+  "lsp": {
+    "pyright": {
+      "command": ["pyright-langserver", "--stdio"],
+      "extensions": [".py", ".pyi"]
+    },
+    "ruff": {
+      "command": ["ruff-server", "--stdio"],
+      "extensions": [".py", ".pyi"]
+    },
+    "rust": {
+      "command": ["rust-analyzer"],
+      "extensions": [".rs"]
+    },
+    "clangd": {
+      "command": ["clangd", "--compile-commands-dir=build"],
+      "extensions": [".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp", ".hh", ".hxx"]
+    },
+    "typescript": {
+      "disabled": false
+    },
+    "eslint": {
+      "disabled": false
+    },
+    "yaml-ls": {
+      "disabled": false
+    },
+    "bash": {
+      "disabled": false
+    }
+  },
+  "mcp": {
+    "searxng": {
+      "type": "local",
+      "command": ["npx", "-y", "mcp-searxng"],
+      "enabled": true,
+      "environment": {
+        "SEARXNG_URL": "http://localhost:8888"
+      }
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "enabled": true
+    },
+    "gitea": {
+      "type": "local",
+      "command": ["npx", "-y", "@boringstudio_org/gitea-mcp"],
+      "enabled": true,
+      "environment": {
+        "GITEA_URL": "http://localhost:3000",
+        "GITEA_TOKEN": "${GITEA_API_TOKEN}"
+      }
+    }
+  },
+  "permission": {
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    },
+    "edit": {
+      "*": "ask"
+    },
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "ls *": "allow",
+      "cat *": "allow",
+      "grep *": "allow",
+      "find *": "allow",
+      "pytest *": "allow",
+      "python -m pytest *": "allow",
+      "ruff check *": "allow",
+      "ruff format *": "allow",
+      "mypy *": "allow",
+      "docker compose *": "ask",
+      "docker *": "ask",
+      "rm *": "deny",
+      "sudo *": "deny",
+      "chmod *": "deny",
+      "chown *": "deny"
+    },
+    "skill": {
+      "*": "allow"
+    },
+    "task": {
+      "*": "allow"
+    },
+    "webfetch": {
+      "*": "allow"
+    },
+    "websearch": {
+      "*": "allow"
+    },
+    "external_directory": {
+      "*": "deny"
+    }
+  },
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "description": "Full development agent with all tools enabled",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "git add*": "allow",
+          "git commit*": "allow",
+          "git push*": "ask",
+          "git checkout*": "allow",
+          "git branch*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow",
+          "pytest *": "allow",
+          "python -m pytest *": "allow",
+          "ruff check *": "allow",
+          "ruff format *": "allow",
+          "mypy *": "allow",
+          "rm *": "deny",
+          "sudo *": "deny"
+        }
+      }
+    },
+    "plan": {
+      "mode": "primary",
+      "description": "Analysis and planning agent — read-only, creates specs",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow"
+        }
+      }
+    },
+    "planner": {
+      "mode": "subagent",
+      "description": "Analyzes requirements and creates specifications",
+      "model": "mimo-v2.5-pro",
+      "temperature": 0.1,
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow"
+        }
+      },
+      "prompt": "You are a requirements analyst. Analyze user requirements and create detailed specifications. Focus on:\n- Understanding the problem domain\n- Identifying functional requirements\n- Defining acceptance criteria\n- Creating clear, actionable specs\n- Avoiding technical implementation details"
+    },
+    "coder": {
+      "mode": "subagent",
+      "description": "Implements code based on specifications",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "git add*": "allow",
+          "git commit*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow",
+          "pytest *": "allow",
+          "python -m pytest *": "allow",
+          "ruff check *": "allow",
+          "ruff format *": "allow",
+          "mypy *": "allow",
+          "rm *": "deny",
+          "sudo *": "deny"
+        }
+      },
+      "prompt": "You are a software engineer. Implement code based on specifications. Follow these rules:\n- Write clean, maintainable code\n- Follow project conventions\n- Add comprehensive tests\n- Use SEARCH/REPLACE blocks for edits\n- Run tests before committing\n- Use conventional commits"
+    },
+    "reviewer": {
+      "mode": "subagent",
+      "description": "Reviews code for quality, security, and best practices",
+      "temperature": 0.1,
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow",
+          "trailmark *": "allow"
+        }
+      },
+      "prompt": "You are a code reviewer. Analyze code for:\n- Code quality and best practices\n- Potential bugs and edge cases\n- Performance implications\n- Security considerations\n- Test coverage gaps\n- Documentation completeness\n\nUse trailmark to analyze code structure and identify entrypoints.\n\nProvide constructive feedback with specific suggestions."
+    },
+    "security": {
+      "mode": "subagent",
+      "description": "Performs security audits and identifies vulnerabilities",
+      "temperature": 0.1,
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow",
+          "gitleaks *": "allow",
+          "semgrep *": "allow",
+          "bandit *": "allow",
+          "trivy *": "allow",
+          "trailmark *": "allow"
+        }
+      },
+      "prompt": "You are a security expert. Perform security audits focusing on:\n- Input validation vulnerabilities\n- Authentication and authorization flaws\n- Data exposure risks\n- Dependency vulnerabilities\n- Configuration security issues\n- Prompt injection risks\n\nUse trailmark to map code structure and entrypoints. Overlay findings from semgrep, bandit, gitleaks.\n\nProvide actionable remediation steps."
+    },
+    "test-writer": {
+      "mode": "subagent",
+      "description": "Generates comprehensive test suites",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "pytest *": "allow",
+          "python -m pytest *": "allow",
+          "ruff check *": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow",
+          "rm *": "deny",
+          "sudo *": "deny"
+        }
+      },
+      "prompt": "You are a test engineer. Generate comprehensive tests covering:\n- Happy path scenarios\n- Edge cases and boundary conditions\n- Error handling and failure modes\n- Integration points\n- Performance characteristics\n\nUse pytest fixtures, parametrize, and mocking. Aim for high mutation score."
+    },
+    "orchestrator": {
+      "mode": "subagent",
+      "description": "Coordinates development workflow and delegates tasks",
+      "temperature": 0.3,
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "git add*": "allow",
+          "git commit*": "allow",
+          "git push*": "ask",
+          "git checkout*": "allow",
+          "git branch*": "allow",
+          "ls *": "allow",
+          "cat *": "allow",
+          "grep *": "allow",
+          "find *": "allow",
+          "pytest *": "allow",
+          "python -m pytest *": "allow",
+          "ruff check *": "allow",
+          "ruff format *": "allow",
+          "mypy *": "allow",
+          "rm *": "deny",
+          "sudo *": "deny"
+        },
+        "task": {
+          "*": "allow"
+        }
+      },
+      "prompt": "You are a workflow orchestrator. Coordinate the development process:\n1. Analyze the task\n2. Delegate to specialists (planner, coder, reviewer, security, test-writer)\n3. Track progress\n4. Ensure quality gates pass\n5. Manage git workflow\n\nUse the Task tool to delegate to subagents. Track state in Gitea issues."
+    }
+  }
+}

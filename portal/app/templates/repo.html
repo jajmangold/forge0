@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Forge0 — {{ repo.full_name }}{% endblock %}
+
+{% block content %}
+<div class="repo-detail">
+
+  <div class="repo-header">
+    <h1>
+      <a href="{{ gitea_url }}/{{ repo.full_name }}" target="_blank">{{ repo.full_name }}</a>
+    </h1>
+    {% if repo.description %}
+    <p class="repo-desc-full">{{ repo.description }}</p>
+    {% endif %}
+    <div class="repo-stats-row">
+      <span>{{ repo.stars_count or 0 }} stars</span>
+      <span>{{ repo.forks_count or 0 }} forks</span>
+      <span>{{ repo.open_issues_count or 0 }} issues</span>
+      <span>{{ repo.size | format_size }}</span>
+      <span>default: <code>{{ repo.default_branch }}</code></span>
+      <a href="/repo/{{ repo.full_name }}/chat" class="btn btn-primary">
+        💬 Chat with Project
+      </a>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+
+    {# ── LEFT: file tree + readme ── #}
+    <div class="detail-left">
+
+      {% if file_tree %}
+      <div class="panel">
+        <div class="panel-header"><h3>Files</h3></div>
+        <div class="file-tree">
+          {% for f in file_tree|sort(attribute='type', reverse=true) %}
+          <div class="file-entry {{ f.type }}">
+            {% if f.type == 'dir' %}
+              <span class="icon">📁</span> {{ f.name }}/
+            {% else %}
+              <span class="icon">📄</span> {{ f.name }}
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if readme %}
+      <div class="panel">
+        <div class="panel-header"><h3>README</h3></div>
+        <div class="readme-body">
+          <pre>{{ readme }}</pre>
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    {# ── RIGHT: activity sidebar ── #}
+    <div class="detail-right">
+
+      {# actions #}
+      {% if runs %}
+      <div class="panel">
+        <div class="panel-header"><h3>Actions</h3></div>
+        <div class="runs-compact">
+          {% for run in runs[:8] %}
+          <div class="run-mini">
+            {% if run.status == 'success' %}
+              <span class="status-dot ok"></span>
+            {% elif run.status == 'failure' %}
+              <span class="status-dot err"></span>
+            {% elif run.status in ('running', 'waiting') %}
+              <span class="status-dot running"></span>
+            {% else %}
+              <span class="status-dot"></span>
+            {% endif %}
+            <span class="run-name">{{ run.name or '—' }}</span>
+            <span class="run-ago">{{ run.updated_at | time_ago }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# commits #}
+      {% if commits %}
+      <div class="panel">
+        <div class="panel-header"><h3>Recent Commits</h3></div>
+        <div class="commit-list">
+          {% for c in commits[:10] %}
+          <div class="commit-item">
+            <code class="commit-sha">{{ c.sha[:7] }}</code>
+            <span class="commit-msg">{{ c.commit.message.split('\n')[0][:80] }}</span>
+            <span class="commit-ago">{{ c.commit.author.date | time_ago if c.commit and c.commit.author else '' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# issues #}
+      {% if issues %}
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Open Issues</h3>
+          <span class="badge">{{ issues|length }}</span>
+        </div>
+        {% for issue in issues[:5] %}
+        <div class="issue-item">
+          <span class="issue-num">#{{ issue.number }}</span>
+          <span class="issue-title">{{ issue.title[:60] }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# pulls #}
+      {% if pulls %}
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Pull Requests</h3>
+          <span class="badge">{{ pulls|length }}</span>
+        </div>
+        {% for pr in pulls[:5] %}
+        <div class="issue-item">
+          <span class="issue-num">#{{ pr.number }}</span>
+          <span class="issue-title">{{ pr.title[:60] }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

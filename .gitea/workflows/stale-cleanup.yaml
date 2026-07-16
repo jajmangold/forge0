@@ -1,0 +1,73 @@
+name: Stale Cleanup
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:
+
+jobs:
+  stale-issues:
+    name: Cleanup Stale Issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find stale issues
+        uses: actions/stale@v9
+        with:
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-label: 'status:stale'
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity.
+            It will be closed in 7 days if no further activity occurs.
+          close-issue-message: |
+            This issue has been closed due to inactivity.
+          exempt-issue-labels: 'priority:critical,status:blocked'
+          exempt-all-milestones: true
+
+  stale-prs:
+    name: Cleanup Stale PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find stale PRs
+        uses: actions/stale@v9
+        with:
+          days-before-stale: 14
+          days-before-close: 7
+          stale-pr-label: 'status:stale'
+          stale-pr-message: |
+            This PR has been automatically marked as stale because it has not had recent activity.
+            It will be closed in 7 days if no further activity occurs.
+          close-pr-message: |
+            This PR has been closed due to inactivity.
+          exempt-pr-labels: 'priority:critical,status:blocked'
+
+  stale-branches:
+    name: Cleanup Stale Branches
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete merged branches
+        run: |
+          git fetch --prune
+          git branch -r --merged origin/main | grep -v main | grep -v HEAD | while read branch; do
+            BRANCH_NAME="${branch#origin/}"
+            echo "Deleting merged branch: $BRANCH_NAME"
+            git push origin --delete "$BRANCH_NAME" || true
+          done
+
+      - name: Delete old unmerged branches
+        run: |
+          git fetch --prune
+          # Find branches older than 30 days
+          git for-each-ref --format='%(refname:short) %(committerdate)' refs/remotes/origin | \
+            sort -k2 | \
+            awk '$2 < "'$(date -d '30 days ago' '+%Y-%m-%d')'" {print $1}' | \
+            grep -v main | \
+            grep -v HEAD | \
+            while read branch; do
+              BRANCH_NAME="${branch#origin/}"
+              echo "Deleting old branch: $BRANCH_NAME"
+              git push origin --delete "$BRANCH_NAME" || true
+            done

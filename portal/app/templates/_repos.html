@@ -1,0 +1,19 @@
+{% if repos %}
+<div class="repos-grid">
+  {% for repo in repos %}
+  <a href="/repo/{{ repo.owner.login }}/{{ repo.name }}" class="repo-card">
+    <div class="repo-name">{{ repo.owner.login }}/{{ repo.name }}</div>
+    {% if repo.description %}
+    <div class="repo-desc">{{ repo.description }}</div>
+    {% endif %}
+    <div class="repo-meta">
+      <span class="repo-lang">{{ repo.language or "" }}</span>
+      <span class="repo-size">{{ repo.size | format_size }}</span>
+      <span class="repo-updated">{{ repo.updated_at | time_ago }}</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">No repositories yet</div>
+{% endif %}

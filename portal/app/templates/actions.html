@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Forge0 — Actions{% endblock %}
+
+{% block content %}
+<div class="actions-page">
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Workflow Runs</h2>
+      <span class="badge">{{ runs|length }}</span>
+    </div>
+    <div id="runs-table"
+         hx-get="/partials/runs" hx-trigger="every 10s" hx-swap="innerHTML">
+      {% include "_runs.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

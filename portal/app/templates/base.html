@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Forge0{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/ws.js"></script>
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+                <a href="/" class="logo">
+                    <span class="logo-icon">⚡</span>
+                    <span class="logo-text">Forge0</span>
+                </a>
+            </div>
+            <div class="header-center">
+                <div class="search-box" onclick="openCommandPalette()">
+                    <span class="search-icon">🔍</span>
+                    <span class="search-text">Search or run command...</span>
+                    <kbd>Ctrl+K</kbd>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+                <div class="notifications" hx-get="/partials/notifications" hx-trigger="every 30s">
+                    🔔
+                </div>
+                <div class="user-menu">
+                    <img src="/static/avatar.png" alt="User" class="avatar">
+                </div>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <nav class="nav">
+                <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="/projects" class="nav-item {% if page == 'projects' %}active{% endif %}">
+                    <span class="nav-icon">📁</span>
+                    <span class="nav-text">Projects</span>
+                </a>
+                <a href="/issues" class="nav-item {% if page == 'issues' %}active{% endif %}">
+                    <span class="nav-icon">🐛</span>
+                    <span class="nav-text">Issues</span>
+                    <span class="nav-badge">12</span>
+                </a>
+                <a href="/pulls" class="nav-item {% if page == 'pulls' %}active{% endif %}">
+                    <span class="nav-icon">🔀</span>
+                    <span class="nav-text">Pull Requests</span>
+                    <span class="nav-badge">5</span>
+                </a>
+                <a href="/actions" class="nav-item {% if page == 'actions' %}active{% endif %}">
+                    <span class="nav-icon">⚡</span>
+                    <span class="nav-text">Actions</span>
+                </a>
+                <a href="/agents" class="nav-item {% if page == 'agents' %}active{% endif %}">
+                    <span class="nav-icon">🤖</span>
+                    <span class="nav-text">Agents</span>
+                </a>
+                <a href="/metrics" class="nav-item {% if page == 'metrics' %}active{% endif %}">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-text">Metrics</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">Projects</h3>
+                <div class="project-list">
+                    {% for repo in repos %}
+                    <a href="/repo/{{ repo.full_name }}" class="project-item">
+                        <span class="project-icon">📦</span>
+                        <span class="project-name">{{ repo.name }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Command Palette -->
+    <div class="command-palette" id="commandPalette">
+        <div class="command-input">
+            <input type="text" placeholder="Type a command..." id="commandInput">
+        </div>
+        <div class="command-results" id="commandResults">
+            <!-- Results populated by JS -->
+        </div>
+    </div>
+
+    <script>
+        // Theme toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
+        // Sidebar toggle
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+        }
+
+        // Command palette
+        function openCommandPalette() {
+            document.getElementById('commandPalette').classList.add('open');
+            document.getElementById('commandInput').focus();
+        }
+
+        function closeCommandPalette() {
+            document.getElementById('commandPalette').classList.remove('open');
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                openCommandPalette();
+            }
+            if (e.key === 'Escape') {
+                closeCommandPalette();
+            }
+        });
+
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
+</body>
+</html>

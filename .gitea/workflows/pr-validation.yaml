@@ -1,0 +1,77 @@
+name: PR Validation
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-branch:
+    name: Validate Branch Name
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch naming
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if [[ ! "$BRANCH" =~ ^(agent|feature|fix|docs|refactor)/ ]]; then
+            echo "❌ Branch name '$BRANCH' doesn't follow convention"
+            echo "Required format: agent/, feature/, fix/, docs/, refactor/"
+            exit 1
+          fi
+          echo "✅ Branch name is valid"
+
+  validate-commits:
+    name: Validate Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check conventional commits
+        run: |
+          INVALID=0
+          git log origin/main..HEAD --format="%H %s" | while read hash msg; do
+            if [[ ! "$msg" =~ ^(feat|fix|docs|test|refactor|perf|chore|ci)(\(.+\))?!?: ]]; then
+              echo "❌ Invalid commit message: $msg"
+              echo "   Must follow: type(scope): description"
+              INVALID=1
+            fi
+          done
+          if [ "$INVALID" -eq 1 ]; then
+            exit 1
+          fi
+          echo "✅ All commit messages are valid"
+
+  validate-pr-template:
+    name: Validate PR Template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR description
+        run: |
+          BODY="${{ github.event.pull_request.body }}"
+          if [[ -z "$BODY" ]]; then
+            echo "❌ PR description is empty"
+            echo "Please fill out the PR template"
+            exit 1
+          fi
+          if [[ ! "$BODY" =~ "## Summary" ]]; then
+            echo "❌ PR must have a Summary section"
+            exit 1
+          fi
+          if [[ ! "$BODY" =~ "## Related Issues" ]]; then
+            echo "❌ PR must link to related issues"
+            exit 1
+          fi
+          echo "✅ PR template is valid"
+
+  validate-labels:
+    name: Validate Labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required labels
+        run: |
+          LABELS="${{ github.event.pull_request.labels.*.name }}"
+          if [[ ! "$LABELS" =~ "type:" ]]; then
+            echo "❌ PR must have a type: label"
+            exit 1
+          fi
+          echo "✅ Labels are valid"
