@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 
-STATE_DIR=${FORGE0_RELEASE_STATE_DIR:-$ROOT/data/forge0-releases}
+STATE_DIR=${FORGE0_RELEASE_STATE_DIR:-$ROOT/.forge0-runtime/releases}
 CANARY_NAME=${FORGE0_CANARY_NAME:-forge0-portal-canary}
 CANARY_PORT=${FORGE0_CANARY_PORT:-3301}
 ENV_ARGS=(--env-file .env --env-file .env.generated)
