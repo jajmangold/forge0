@@ -163,6 +163,7 @@ def test_llm_json_parsing_commit_and_error_sanitization(monkeypatch, tmp_path) -
 
     monkeypatch.delenv("GITEA_TOKEN", raising=False)
     assert service._safe_error(RuntimeError("normal failure")) == "normal failure"
+    assert service._safe_error(TimeoutError()) == "TimeoutError"
     monkeypatch.setenv("GITEA_TOKEN", "sensitive")
     assert service._safe_error(RuntimeError("failed sensitive value")) == "failed [redacted] value"
 

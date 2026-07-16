@@ -158,6 +158,33 @@ class TestLLMClientChatCompletion:
                 await client.chat(messages=[{"role": "user", "content": "test"}])
 
     @pytest.mark.asyncio
+    async def test_retries_a_transient_timeout(self, config):
+        import httpx
+        from app.llm_client import LLMClient
+
+        config.max_attempts = 2
+        client = LLMClient(config)
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": [{"message": {"content": "recovered"}}]}
+        mock_response.raise_for_status = MagicMock()
+
+        with (
+            patch("app.llm_client.httpx.AsyncClient") as mock_cls,
+            patch("app.llm_client.asyncio.sleep", new=AsyncMock()) as sleep,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(side_effect=[httpx.ReadTimeout("slow"), mock_response])
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await client.chat(messages=[{"role": "user", "content": "test"}])
+
+        assert result == "recovered"
+        assert mock_client.post.await_count == 2
+        sleep.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_includes_auth_header(self, config):
         from app.llm_client import LLMClient
 

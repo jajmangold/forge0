@@ -1,6 +1,7 @@
 """LLM client — provider-agnostic, OpenAI-compatible API."""
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -29,7 +30,8 @@ class LLMConfig:
     planner_model: str
     worker_model: str
     critic_model: str
-    timeout: float = 120.0
+    timeout: float = 180.0
+    max_attempts: int = 3
 
     @classmethod
     def from_env(cls) -> LLMConfig:
@@ -44,6 +46,8 @@ class LLMConfig:
             planner_model=os.getenv("LLM_PLANNER_MODEL", "mimo-v2.5-pro"),
             worker_model=os.getenv("LLM_WORKER_MODEL", "mimo-v2.5"),
             critic_model=os.getenv("LLM_CRITIC_MODEL", "mimo-v2.5"),
+            timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "180")),
+            max_attempts=max(1, int(os.getenv("LLM_MAX_ATTEMPTS", "3"))),
         )
 
 
@@ -109,13 +113,28 @@ class LLMClient:
             "Content-Type": "application/json",
         }
 
+        response: httpx.Response | None = None
         async with httpx.AsyncClient(timeout=self.config.timeout) as client:
-            response = await client.post(
-                f"{self.config.base_url}/chat/completions",
-                json=body,
-                headers=headers,
-            )
-            response.raise_for_status()
+            for attempt in range(self.config.max_attempts):
+                try:
+                    response = await client.post(
+                        f"{self.config.base_url}/chat/completions",
+                        json=body,
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    retryable = exc.response.status_code in {429, 500, 502, 503, 504}
+                    if not retryable or attempt + 1 >= self.config.max_attempts:
+                        raise
+                except (httpx.TimeoutException, httpx.NetworkError):
+                    if attempt + 1 >= self.config.max_attempts:
+                        raise
+                await asyncio.sleep(min(2**attempt, 4))
+
+        if response is None:
+            raise LLMResponseError("The LLM service returned no response")
 
         try:
             data = response.json()

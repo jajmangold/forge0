@@ -641,7 +641,13 @@ class DogfoodService:
                 if len(files) >= 400:
                     break
         documents: list[str] = []
-        for name in ("README.md", "AGENTS.md", "docs/implementation-status.md", "pyproject.toml"):
+        for name in (
+            "README.md",
+            "AGENTS.md",
+            "docs/implementation-status.md",
+            "pyproject.toml",
+            "portal/app/main.py",
+        ):
             path = root / name
             if path.is_file():
                 documents.append(f"## {name}\n{path.read_text(errors='replace')[:12_000]}")
@@ -733,7 +739,7 @@ class DogfoodService:
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:
-        message = str(exc)
+        message = str(exc) or type(exc).__name__
         token = os.getenv("GITEA_TOKEN", "")
         if token:
             message = message.replace(token, "[redacted]")
@@ -751,7 +757,9 @@ class DogfoodService:
         return (
             "You are Forge0's planning agent. Produce only JSON with keys summary (string), files (array of exact "
             "repository-relative paths), acceptance_checks (array), and risks (array). Choose at most five files. "
-            "Do not select secrets, data/, .git/, deployment credentials, or files outside the supplied repository map."
+            "Map every acceptance criterion to a selected implementation or test file, and do not select files that "
+            "need no change. Do not select secrets, data/, .git/, deployment credentials, or files outside the "
+            "supplied repository map."
         )
 
     @staticmethod
