@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- add experiment frontier detail view
 - add bounded multi-frontier research lab
 - add experimental ragged RRC-SwiGLU kernel
 - discover recurring failures
@@ -86,6 +87,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - align run targets and measured guide
 - refresh generated documentation
 - refresh generated documentation
