@@ -1613,18 +1613,37 @@ class DogfoodService:
             raise DogfoodError("Coder returned more than 12 changes for one target file")
 
         replacements: list[dict[str, str]] = []
-        expected_keys = {"path", "operation", "old", "new"}
         for change in changes:
-            if not isinstance(change, dict) or set(change) != expected_keys:
-                raise DogfoodError("Multi-change entries must contain exactly path, operation, old, and new")
-            if change["path"] != target_file:
+            if not isinstance(change, dict):
+                raise DogfoodError("Multi-change entries must be objects")
+            if change.get("path") != target_file:
                 raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
-            if change["operation"] != "replace":
-                raise DogfoodError("Multiple target changes must all use replace")
-            old, new = change["old"], change["new"]
-            if not isinstance(old, str) or not old or not isinstance(new, str) or not new:
-                raise DogfoodError("Multiple target replacements require non-empty old and new strings")
-            replacements.append({"old": old, "new": new})
+            operation = change.get("operation")
+            if operation == "replace":
+                if set(change) != {"path", "operation", "old", "new"}:
+                    raise DogfoodError(
+                        "Multi-change replace entries must contain exactly path, operation, old, and new"
+                    )
+                candidates = [{"old": change["old"], "new": change["new"]}]
+            elif operation == "replace_many":
+                if set(change) != {"path", "operation", "replacements"}:
+                    raise DogfoodError(
+                        "Multi-change replace_many entries must contain exactly path, operation, and replacements"
+                    )
+                candidates = change["replacements"]
+                if not isinstance(candidates, list) or not candidates:
+                    raise DogfoodError("Multi-change replace_many replacements must be a non-empty array")
+            else:
+                raise DogfoodError("Multiple target changes must all use replace or replace_many")
+            for replacement in candidates:
+                if not isinstance(replacement, dict) or set(replacement) != {"old", "new"}:
+                    raise DogfoodError("Multiple target replacements must contain exactly old and new")
+                old, new = replacement["old"], replacement["new"]
+                if not isinstance(old, str) or not old or not isinstance(new, str) or not new:
+                    raise DogfoodError("Multiple target replacements require non-empty old and new strings")
+                replacements.append({"old": old, "new": new})
+                if len(replacements) > 12:
+                    raise DogfoodError("Coder returned more than 12 changes for one target file")
         return {"path": target_file, "operation": "replace_many", "replacements": replacements}
 
     @staticmethod
