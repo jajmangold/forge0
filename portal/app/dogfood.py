@@ -266,7 +266,8 @@ class ChangeApplier:
                 old = change.get("old")
                 new = change.get("new")
                 if not isinstance(old, str) or not old or not isinstance(new, str) or not new:
-                    raise DogfoodError(f"Replace blocks must be non-empty text: {path}")
+                    keys = ", ".join(sorted(str(key) for key in change))
+                    raise DogfoodError(f"Replace requires non-empty old and new strings: {path} (keys: {keys})")
                 current = destination.read_text()
                 if current.count(old) != 1:
                     raise DogfoodError(f"Replace block must match exactly once: {path}")
@@ -813,8 +814,10 @@ class DogfoodService:
     def _coder_system_prompt() -> str:
         return (
             "You are Forge0's implementation agent. Return only one JSON object with commit_message, pr_title, "
-            "pr_body, and changes. Each change uses {path, operation}. operation=create requires content; "
-            "operation=replace requires an exact non-empty old block and its new block. Only touch planned files. "
+            "pr_body, and changes. Use exactly these change schemas: "
+            '{"path":"new.txt","operation":"create","content":"complete file text"} or '
+            '{"path":"existing.py","operation":"replace","old":"exact existing block","new":"replacement block"}. '
+            "Do not use content, patch, old_content, or new_content for a replace operation. Only touch planned files. "
             "Never include secrets, generated "
             "credentials, binary data, shell payloads, or deployment actions. Keep the patch small and testable."
         )
@@ -835,7 +838,7 @@ class DogfoodService:
                 "\n\nYour previous structured response was rejected without applying any files. "
                 f"Correct this validation error and return a complete replacement response: {correction}. "
                 "A file whose supplied content is <new file> must use operation=create with content. Only an existing "
-                "file may use operation=replace with exact old and non-empty new blocks."
+                "file may use operation=replace with keys named exactly old and new, both containing non-empty strings."
             )
         return prompt
 

@@ -170,6 +170,7 @@ def test_llm_json_parsing_commit_and_error_sanitization(monkeypatch, tmp_path) -
 
     correction = service._implementation_prompt({}, {}, "<new file>", "target does not exist")
     assert "operation=create" in correction
+    assert "keys named exactly old and new" in correction
     assert "without applying any files" in correction
 
 
