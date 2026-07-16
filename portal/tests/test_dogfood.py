@@ -559,6 +559,57 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_critic_repair_recovers_from_truncated_implementation(tmp_path) -> None:
+    cfg = config(tmp_path, max_critic_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("repair-truncated")
+    client = repair_client()
+    successful = client.chat_with_usage.return_value
+    client.chat_with_usage.side_effect = [
+        ChatResult(content="partial", usage={"total_tokens": 5}, finish_reason="length"),
+        successful,
+    ]
+
+    with (
+        patch.object(service, "_comment", new=AsyncMock()),
+        patch.object(service, "_json_completion", new=AsyncMock(return_value={"pass": True, "feedback": "ok"})),
+    ):
+        await service._repair_pass(
+            record, workspace, client, {}, {"files": ["README.md"]}, {"README.md"}, {}
+        )
+
+    assert client.chat_with_usage.await_count == 2
+    assert record.usage["total_tokens"] == 15
+    assert len(record.correction_errors) == 1
+    assert record.correction_errors[0].startswith("repair README.md:")
+    assert "truncated by the token limit" in record.correction_errors[0]
+
+
+@pytest.mark.asyncio
+async def test_critic_repair_persists_truncation_exhaustion(tmp_path) -> None:
+    cfg = config(tmp_path, max_critic_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("repair-truncation-exhausted")
+    client = AsyncMock()
+    client.chat_with_usage.side_effect = [
+        ChatResult(content="partial", usage={"total_tokens": 5}, finish_reason="length")
+        for _ in range(3)
+    ]
+
+    with patch.object(service, "_comment", new=AsyncMock()):
+        with pytest.raises(DogfoodError, match="truncated by the token limit"):
+            await service._repair_pass(
+                record, workspace, client, {}, {"files": ["README.md"]}, {"README.md"}, {}
+            )
+
+    assert client.chat_with_usage.await_count == 3
+    assert len(record.correction_errors) == 3
+    assert service.store.load(record.id).correction_errors == record.correction_errors
+
+
+@pytest.mark.asyncio
 async def test_critic_repair_stops_when_verification_fails(tmp_path) -> None:
     cfg = config(tmp_path, max_critic_repairs=1)
     service = DogfoodService(cfg)

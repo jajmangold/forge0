@@ -790,6 +790,7 @@ class DogfoodService:
                 )
                 self._add_usage(record, code_result.usage)
                 try:
+                    self._ensure_complete(code_result)
                     file_implementation = self._parse_json(code_result.content)
                     changes = file_implementation.get("changes")
                     if not isinstance(changes, list) or len(changes) != 1:
@@ -803,11 +804,11 @@ class DogfoodService:
                         implementation["pr_body"] = file_implementation.get("pr_body", "")
                     break
                 except DogfoodError as exc:
-                    if attempt == 2:
-                        raise
                     correction = self._safe_error(exc)
                     record.correction_errors.append(f"repair {target_file}: {correction}")
                     self.store.save(record)
+                    if attempt == 2:
+                        raise
 
         # Restage and re-measure the complete change set
         staged_files, diff_lines, diff = await workspace.stage_and_measure()
