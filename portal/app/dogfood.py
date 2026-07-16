@@ -32,6 +32,7 @@ class RunStatus(StrEnum):
     IMPLEMENTING = "implementing"
     VERIFYING = "verifying"
     REVIEWING = "reviewing"
+    REPAIRING = "repairing"
     PUBLISHING = "publishing"
     DRAFT_OPENED = "draft-opened"
     FAILED = "failed"
@@ -43,6 +44,7 @@ ACTIVE_STATUSES = {
     RunStatus.IMPLEMENTING,
     RunStatus.VERIFYING,
     RunStatus.REVIEWING,
+    RunStatus.REPAIRING,
     RunStatus.PUBLISHING,
 }
 
@@ -80,6 +82,7 @@ class DogfoodConfig:
     max_critic_diff_chars: int = 160_000
     token_budget: int = 100_000
     keep_workspaces: bool = False
+    max_critic_repairs: int = 1
 
     @property
     def full_name(self) -> str:
@@ -96,6 +99,9 @@ class DogfoodConfig:
             for item in os.getenv("FORGE0_DOGFOOD_ALLOWED_PATHS", "").split(",")
             if item.strip()
         )
+        max_critic_repairs = int(os.getenv("FORGE0_MAX_CRITIC_REPAIRS", "1"))
+        if max_critic_repairs < 0 or max_critic_repairs > 2:
+            raise ValueError("FORGE0_MAX_CRITIC_REPAIRS must be between 0 and 2")
         return cls(
             self_owner=owner,
             self_repo=repo,
@@ -113,6 +119,7 @@ class DogfoodConfig:
             max_critic_diff_chars=int(os.getenv("FORGE0_MAX_CRITIC_DIFF_CHARS", "160000")),
             token_budget=int(os.getenv("FORGE0_RUN_TOKEN_BUDGET", "100000")),
             keep_workspaces=os.getenv("FORGE0_KEEP_WORKSPACES", "false").lower() == "true",
+            max_critic_repairs=max_critic_repairs,
         )
 
 
@@ -134,6 +141,7 @@ class RunRecord:
     changed_files: list[str] = field(default_factory=list)
     verification: list[dict[str, Any]] = field(default_factory=list)
     critic_feedback: str = ""
+    critic_repair_count: int = 0
     correction_errors: list[str] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     error: str = ""
@@ -642,7 +650,17 @@ class DogfoodService:
             )
             record.critic_feedback = str(review.get("feedback", ""))[:4000]
             if review.get("pass") is not True:
-                raise DogfoodError(f"Critic rejected the change: {record.critic_feedback}")
+                # Check if repair is allowed
+                if record.critic_repair_count < self.config.max_critic_repairs:
+                    # Perform repair pass
+                    await self._repair_pass(
+                        record, workspace, client, issue, plan, planned_files, implementation
+                    )
+                else:
+                    message = f"Critic repair exhausted after {record.critic_repair_count} repair(s)"
+                    record.correction_errors.append(message)
+                    self.store.save(record)
+                    raise DogfoodError(f"{message}: {record.critic_feedback}")
 
             record.status = RunStatus.PUBLISHING
             self.store.save(record)
@@ -680,6 +698,131 @@ class DogfoodService:
             if workspace and not self.config.keep_workspaces:
                 workspace.cleanup()
 
+    async def _repair_pass(
+        self,
+        record: RunRecord,
+        workspace: GitWorkspace,
+        client: LLMClient,
+        issue: dict[str, Any],
+        plan: dict[str, Any],
+        planned_files: set[str],
+        implementation: dict[str, Any],
+    ) -> None:
+        """Perform one bounded critic-guided repair pass."""
+        record.critic_repair_count += 1
+        record.status = RunStatus.REPAIRING
+        self.store.save(record)
+        await self._comment(
+            record,
+            f"🔧 Performing repair pass {record.critic_repair_count}/"
+            f"{self.config.max_critic_repairs} due to critic feedback.",
+        )
+
+        # Regenerate only the planned files using their current workspace contents plus critic feedback
+        new_applied: list[str] = []
+        for target_file in sorted(planned_files):
+            file_context = self._planned_file_context(workspace.repo_path, {target_file})
+            correction = ""
+            for attempt in range(3):
+                code_result = await client.chat_with_usage(
+                    messages=[
+                        {"role": "system", "content": self._coder_system_prompt()},
+                        {
+                            "role": "user",
+                            "content": self._implementation_prompt(
+                                issue,
+                                plan,
+                                file_context,
+                                correction,
+                                target_file=target_file,
+                                critic_feedback=record.critic_feedback,
+                            ),
+                        },
+                    ],
+                    model=self.config.coder_model,
+                    temperature=0.1,
+                    max_tokens=20_000,
+                    response_format={"type": "json_object"},
+                )
+                self._add_usage(record, code_result.usage)
+                try:
+                    file_implementation = self._parse_json(code_result.content)
+                    changes = file_implementation.get("changes")
+                    if not isinstance(changes, list) or len(changes) != 1:
+                        raise DogfoodError("Coder must return exactly one change for the target file")
+                    if not isinstance(changes[0], dict) or changes[0].get("path") != target_file:
+                        raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
+                    changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+                    new_applied.extend(changed)
+                    # Update implementation with repair data if needed
+                    if not implementation.get("pr_body"):
+                        implementation["pr_body"] = file_implementation.get("pr_body", "")
+                    break
+                except DogfoodError as exc:
+                    if attempt == 2:
+                        raise
+                    correction = self._safe_error(exc)
+                    record.correction_errors.append(f"repair {target_file}: {correction}")
+                    self.store.save(record)
+
+        # Restage and re-measure the complete change set
+        staged_files, diff_lines, diff = await workspace.stage_and_measure()
+        if set(staged_files) != set(new_applied):
+            raise DogfoodError("Repository changes did not match the structured change list after repair")
+        diff_limit = self._diff_limit(staged_files)
+        if diff_lines > diff_limit:
+            raise DogfoodError(f"Diff exceeded {diff_limit} changed lines after repair")
+        record.changed_files = staged_files
+
+        # Enforce existing limits again
+        if len(diff) > self.config.max_critic_diff_chars:
+            raise DogfoodError("Diff exceeded the critic context limit after repair")
+
+        # Re-run all verification commands after repair
+        record.status = RunStatus.VERIFYING
+        self.store.save(record)
+        record.verification = await workspace.verify()
+        self.store.save(record)
+        failed_check = next((item for item in record.verification if not item["success"]), None)
+        if failed_check is not None:
+            raise DogfoodError(f"Verification failed after repair: {failed_check['command']}")
+
+        # Re-run the read-only critic on the complete bounded diff
+        record.status = RunStatus.REVIEWING
+        self.store.save(record)
+        review = await self._json_completion(
+            client,
+            record,
+            messages=[
+                {"role": "system", "content": self._critic_system_prompt()},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Issue:\n{issue.get('body', '')}\n\nPlan:\n{json.dumps(plan)}"
+                        f"\n\nComplete bounded diff ({len(diff)} characters):\n"
+                        f"{diff[: self.config.max_critic_diff_chars]}"
+                    ),
+                },
+            ],
+            model="critic",
+            temperature=0.0,
+            max_tokens=2000,
+        )
+        record.critic_feedback = str(review.get("feedback", ""))[:4000]
+        if review.get("pass") is not True:
+            # Check if another repair is allowed
+            if record.critic_repair_count < self.config.max_critic_repairs:
+                # Perform another repair pass (recursive call)
+                await self._repair_pass(
+                    record, workspace, client, issue, plan, planned_files, implementation
+                )
+            else:
+                message = f"Critic repair exhausted after {record.critic_repair_count} repair(s)"
+                record.correction_errors.append(message)
+                self.store.save(record)
+                raise DogfoodError(f"{message}: {record.critic_feedback}")
+        self.store.save(record)
+
     def _repository_context(self, root: Path) -> str:
         ignored = {".git", ".venv", "data", "node_modules", "target", "dist", "build"}
         files: list[str] = []
@@ -710,7 +853,7 @@ class DogfoodService:
             total += len(content)
             if total > 120_000:
                 raise DogfoodError("Planned file context exceeds the safety limit")
-            parts.append(f"<file path={json.dumps(name)}>\n{content}\n</file>")
+            parts.append(f'<file path={json.dumps(name)}>\n{content}\n</file>')
         return "\n\n".join(parts)
 
     def _validate_plan(self, plan: dict[str, Any]) -> set[str]:
@@ -879,6 +1022,7 @@ class DogfoodService:
         correction: str = "",
         *,
         target_file: str = "",
+        critic_feedback: str = "",
     ) -> str:
         prompt = (
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
@@ -886,6 +1030,12 @@ class DogfoodService:
         )
         if target_file:
             prompt += f"\n\nReturn exactly one change, for this target path only: {target_file}"
+        if critic_feedback:
+            prompt += (
+                "\n\nCritic feedback on previous implementation:\n" +
+                critic_feedback +
+                "\n\nYou must address this feedback in your response."
+            )
         if correction:
             prompt += (
                 "\n\nYour previous structured response was rejected and that change was not applied. "

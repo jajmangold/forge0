@@ -328,3 +328,132 @@ async def test_verification_returns_failure_output_for_persistence(tmp_path) -> 
             "output": "test output",
         }
     ]
+
+
+def repair_workspace(tmp_path, cfg: DogfoodConfig, *, verification_success: bool = True) -> GitWorkspace:
+    workspace = GitWorkspace(tmp_path / "workspace", cfg, "token")
+    workspace.repo_path.mkdir(parents=True)
+    (workspace.repo_path / "README.md").write_text("before\n")
+    workspace.stage_and_measure = AsyncMock(return_value=(["README.md"], 2, "complete diff"))
+    workspace.verify = AsyncMock(
+        return_value=[
+            {
+                "command": "pytest -q",
+                "success": verification_success,
+                "output": "" if verification_success else "failure details",
+            }
+        ]
+    )
+    return workspace
+
+
+def repair_client() -> AsyncMock:
+    client = AsyncMock()
+    client.chat_with_usage.return_value = ChatResult(
+        content=json.dumps(
+            {
+                "commit_message": "fix(dogfood): repair candidate",
+                "pr_title": "Repair candidate",
+                "pr_body": "Applies critic feedback.",
+                "changes": [
+                    {
+                        "path": "README.md",
+                        "operation": "rewrite",
+                        "content": "after\n",
+                    }
+                ],
+            }
+        ),
+        usage={"total_tokens": 10},
+    )
+    return client
+
+
+def repair_record(run_id: str) -> RunRecord:
+    return RunRecord(
+        id=run_id,
+        owner="agent",
+        repo="forge0",
+        issue_number=42,
+        issue_title="Repair",
+        critic_feedback="Address the defect",
+    )
+
+
+@pytest.mark.asyncio
+async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
+    cfg = config(tmp_path, max_critic_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("repair-pass")
+
+    with (
+        patch.object(service, "_comment", new=AsyncMock()),
+        patch.object(service, "_json_completion", new=AsyncMock(return_value={"pass": True, "feedback": "ok"})),
+    ):
+        await service._repair_pass(
+            record,
+            workspace,
+            repair_client(),
+            {"title": "Repair", "body": "## Acceptance Criteria\n- fixed"},
+            {"files": ["README.md"]},
+            {"README.md"},
+            {},
+        )
+
+    assert record.critic_repair_count == 1
+    assert record.status is RunStatus.REVIEWING
+    assert record.changed_files == ["README.md"]
+    assert record.verification[0]["success"] is True
+    assert (workspace.repo_path / "README.md").read_text() == "after\n"
+
+
+@pytest.mark.asyncio
+async def test_critic_repair_stops_when_verification_fails(tmp_path) -> None:
+    cfg = config(tmp_path, max_critic_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg, verification_success=False)
+    record = repair_record("repair-verification-fails")
+
+    with patch.object(service, "_comment", new=AsyncMock()):
+        with pytest.raises(DogfoodError, match="Verification failed after repair"):
+            await service._repair_pass(
+                record, workspace, repair_client(), {}, {"files": ["README.md"]}, {"README.md"}, {}
+            )
+
+    assert record.verification[0]["output"] == "failure details"
+
+
+@pytest.mark.asyncio
+async def test_critic_repair_exhaustion_is_durable(tmp_path) -> None:
+    cfg = config(tmp_path, max_critic_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("repair-exhausted")
+
+    with (
+        patch.object(service, "_comment", new=AsyncMock()),
+        patch.object(
+            service,
+            "_json_completion",
+            new=AsyncMock(return_value={"pass": False, "feedback": "still defective"}),
+        ),
+    ):
+        with pytest.raises(DogfoodError, match="repair exhausted"):
+            await service._repair_pass(
+                record, workspace, repair_client(), {}, {"files": ["README.md"]}, {"README.md"}, {}
+            )
+
+    assert record.correction_errors == ["Critic repair exhausted after 1 repair(s)"]
+    assert service.store.load(record.id).correction_errors == record.correction_errors
+
+
+def test_critic_repair_configuration_enforces_hard_cap(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("FORGE0_DATA_DIR", os.fspath(tmp_path))
+    monkeypatch.setenv("FORGE0_SELF_REPO", "agent/forge0")
+    monkeypatch.setenv("FORGE0_MAX_CRITIC_REPAIRS", "3")
+    with pytest.raises(ValueError, match="between 0 and 2"):
+        DogfoodConfig.from_env()
+
+    monkeypatch.setenv("FORGE0_MAX_CRITIC_REPAIRS", "2")
+    assert DogfoodConfig.from_env().max_critic_repairs == 2
