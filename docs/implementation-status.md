@@ -44,6 +44,36 @@ documents are not automatically implemented features.
   production database. The current deployment is a localhost, single-operator
   development system.
 
+## Recursive dogfood boundaries
+
+These are working staging capabilities on agent branches; they are not claimed
+as deployed on canonical main.
+
+- **Authoritative issue File Scope.** When an issue declares one, the planner
+  cannot select paths outside it; every coder change is also confined to the
+  resulting planned-file set.
+- **Transactional structured edits.** Creates, single or multi-block exact
+  replacements, and bounded rewrites are validated before they are written; the
+  agent never applies a model-supplied raw diff.
+- **Truncation handling.** Token-limit completion signals are rejected and
+  retried with a request for a complete, more concise structured response.
+- **Path-aware coverage reporting.** The fixed repository suite still runs, while
+  changed paths are classified as Python-covered, documentation review-only, or
+  unsupported and requiring explicit manual acceptance. Repository-level health
+  checks are not claimed as artifact-specific verification.
+- **Bounded verification repair.** One retry is permitted to fix a failing
+  verification gate, restricted to the original planned paths.
+- **Bounded critic repair.** One retry is permitted to address read-only critic
+  findings, also restricted to the original planned paths.
+- **Structured critic findings.** Bounded, staged-path-validated findings are
+  persisted alongside normalized critic feedback and supplied to repair.
+
+Every repair—verification or critic—must remeasure the diff, rerun the fixed
+verification, and pass read-only criticism before publication.
+
+**Final authority boundary.** The agent may push to its own branches and open
+native draft pull requests only. It never merges or deploys.
+
 ## Completion criteria
 
 The MVP is releasable when unit tests, Ruff, Pyright, Python byte-compilation,
