@@ -643,8 +643,35 @@ def test_run_record_loads_without_verification_coverage() -> None:
         issue_title="Old run",
     ).to_dict()
     old_data.pop("verification_coverage")
+    old_data.pop("critic_findings")
 
-    assert RunRecord.from_dict(old_data).verification_coverage == {}
+    loaded = RunRecord.from_dict(old_data)
+    assert loaded.verification_coverage == {}
+    assert loaded.critic_findings == []
+
+
+def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
+    normalized = DogfoodService._validate_critic(
+        {
+            "pass": True,
+            "feedback": " clean ",
+            "findings": [
+                {
+                    "severity": "low",
+                    "file": "README.md",
+                    "concern": " <b>note</b> ",
+                    "evidence": "line 1",
+                    "recommendation": "review",
+                }
+            ],
+        },
+        {"README.md"},
+    )
+    assert normalized["feedback"] == "clean"
+    assert normalized["findings"][0]["concern"] == "&lt;b&gt;note&lt;/b&gt;"
+
+    with pytest.raises(DogfoodError, match="Invalid critic response"):
+        DogfoodService._validate_critic({"pass": True, "feedback": "missing"}, {"README.md"})
 
 
 def test_pull_body_separates_checks_and_manual_coverage() -> None:
@@ -690,6 +717,33 @@ def test_pull_body_has_no_manual_toolchain_claim_for_docs_only() -> None:
 
     assert "documentation review only; no extra toolchain required" in body
     assert "## Manual acceptance required\n\nNo uncovered implementation paths." in body
+
+
+def test_pull_body_safely_renders_structured_critic_findings() -> None:
+    record = RunRecord(
+        id="critic-run",
+        owner="agent",
+        repo="forge0",
+        issue_number=4,
+        issue_title="Critic",
+        changed_files=["README.md"],
+        critic_findings=[
+            {
+                "severity": "low<script>",
+                "file": "",
+                "concern": "<b>`concern`</b>",
+                "evidence": "<script>evidence</script>",
+                "recommendation": "review",
+            }
+        ],
+    )
+
+    body = DogfoodService._pull_body(record, {}, "abc123")
+
+    assert "## Structured critic findings" in body
+    assert "repository-global" in body
+    assert "<script>" not in body
+    assert "&lt;script&gt;" in body
 
 
 def repair_workspace(tmp_path, cfg: DogfoodConfig, *, verification_success: bool = True) -> GitWorkspace:
@@ -879,15 +933,29 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
     service = DogfoodService(cfg)
     workspace = repair_workspace(tmp_path, cfg)
     record = repair_record("repair-pass")
+    record.critic_findings = [
+        {
+            "severity": "high",
+            "file": "README.md",
+            "concern": "Broken behavior",
+            "evidence": "failing case",
+            "recommendation": "repair it",
+        }
+    ]
+    client = repair_client()
 
     with (
         patch.object(service, "_comment", new=AsyncMock()),
-        patch.object(service, "_json_completion", new=AsyncMock(return_value={"pass": True, "feedback": "ok"})),
+        patch.object(
+            service,
+            "_json_completion",
+            new=AsyncMock(return_value={"pass": True, "feedback": "ok", "findings": []}),
+        ),
     ):
         await service._repair_pass(
             record,
             workspace,
-            repair_client(),
+            client,
             {"title": "Repair", "body": "## Acceptance Criteria\n- fixed"},
             {"files": ["README.md"]},
             {"README.md"},
@@ -899,6 +967,9 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
     assert record.changed_files == ["README.md"]
     assert record.verification[0]["success"] is True
     assert (workspace.repo_path / "README.md").read_text() == "after\n"
+    repair_prompt = client.chat_with_usage.await_args.kwargs["messages"][-1]["content"]
+    assert "Structured findings" in repair_prompt
+    assert "Broken behavior" in repair_prompt
 
 
 @pytest.mark.asyncio
@@ -916,7 +987,11 @@ async def test_critic_repair_recovers_from_truncated_implementation(tmp_path) ->
 
     with (
         patch.object(service, "_comment", new=AsyncMock()),
-        patch.object(service, "_json_completion", new=AsyncMock(return_value={"pass": True, "feedback": "ok"})),
+        patch.object(
+            service,
+            "_json_completion",
+            new=AsyncMock(return_value={"pass": True, "feedback": "ok", "findings": []}),
+        ),
     ):
         await service._repair_pass(
             record, workspace, client, {}, {"files": ["README.md"]}, {"README.md"}, {}
@@ -980,7 +1055,9 @@ async def test_critic_repair_exhaustion_is_durable(tmp_path) -> None:
         patch.object(
             service,
             "_json_completion",
-            new=AsyncMock(return_value={"pass": False, "feedback": "still defective"}),
+            new=AsyncMock(
+                return_value={"pass": False, "feedback": "still defective", "findings": []}
+            ),
         ),
     ):
         with pytest.raises(DogfoodError, match="repair exhausted"):
