@@ -54,6 +54,62 @@ def test_chat_template_renders_messages_as_text() -> None:
     assert "div.innerHTML = `<div class=\"message-content\">" not in response.text
 
 
+def test_dashboard_renders_usable_navigation_and_compact_metrics() -> None:
+    with (
+        patch("app.main.gitea.list_repos", new=AsyncMock(return_value=[])),
+        patch(
+            "app.main.gitea.get_actions_stats",
+            new=AsyncMock(return_value={"running": 0, "queued": 1, "success": 2, "failure": 0}),
+        ),
+        patch(
+            "app.main.gitea.get_stats",
+            new=AsyncMock(return_value={"total_repos": 0, "active_today": 0, "active_week": 0}),
+        ),
+    ):
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'aria-label="Primary navigation"' in response.text
+    assert 'id="commandPalette"' in response.text
+    assert "Build, review, and ship with context." in response.text
+    assert 'class="stats"' in response.text
+
+
+def test_actions_table_has_mobile_labels() -> None:
+    run = {
+        "status": "success",
+        "name": "verify",
+        "repository": None,
+        "head_branch": "main",
+        "event": "push",
+        "updated_at": "2026-07-16T00:00:00Z",
+    }
+    with patch("app.main.gitea.list_all_workflow_runs", new=AsyncMock(return_value=[run])):
+        response = client.get("/actions")
+
+    assert response.status_code == 200
+    assert 'data-label="Status"' in response.text
+    assert 'data-label="Repository"' in response.text
+    assert "refreshes automatically" in response.text
+
+
+def test_repository_failure_uses_safe_app_shell_error() -> None:
+    unavailable = AsyncMock(side_effect=RuntimeError("sensitive upstream detail"))
+    with (
+        patch("app.main.gitea.get_repo", new=unavailable),
+        patch("app.main.gitea.list_commits", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_workflow_runs", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_issues", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_pulls", new=AsyncMock(return_value=[])),
+    ):
+        response = client.get("/repo/owner/missing")
+
+    assert response.status_code == 404
+    assert "Repository not found" in response.text
+    assert "sensitive upstream detail" not in response.text
+    assert 'aria-label="Primary navigation"' in response.text
+
+
 def test_stuck_detector_catches_repeated_action() -> None:
     detector = StuckDetector(max_same_tool=10)
     action = Action(tool="read", input={"path": "README.md"})

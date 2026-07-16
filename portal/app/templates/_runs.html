@@ -1,5 +1,5 @@
 {% if runs %}
-<div class="runs-list">
+<div class="runs-list" aria-live="polite">
   <table>
     <thead>
       <tr>
@@ -14,7 +14,7 @@
     <tbody>
       {% for run in runs %}
       <tr class="run-row">
-        <td>
+        <td data-label="Status"><span class="status-cell">
           {% if run.status == 'success' %}
             <span class="status-dot ok"></span>success
           {% elif run.status == 'failure' %}
@@ -28,21 +28,21 @@
           {% else %}
             <span class="status-dot"></span>{{ run.status }}
           {% endif %}
-        </td>
-        <td>{{ run.name or run.workflow_id or '—' }}</td>
-        <td>
+        </span></td>
+        <td data-label="Workflow">{{ run.name or run.workflow_id or '—' }}</td>
+        <td data-label="Repository">
           {% if run.repository %}
             <a href="/repo/{{ run.repository.owner.login }}/{{ run.repository.name }}">{{ run.repository.full_name }}</a>
           {% else %}—{% endif %}
         </td>
-        <td><code>{{ run.head_branch or '—' }}</code></td>
-        <td>{{ run.event or '—' }}</td>
-        <td>{{ run.updated_at | time_ago }}</td>
+        <td data-label="Branch"><code>{{ run.head_branch or '—' }}</code></td>
+        <td data-label="Trigger">{{ run.event or '—' }}</td>
+        <td data-label="Updated">{{ run.updated_at | time_ago }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% else %}
-<div class="empty">No workflow runs yet</div>
+<div class="empty-state"><strong>No workflow runs yet</strong><br>Runs will appear here when repository automation starts.</div>
 {% endif %}

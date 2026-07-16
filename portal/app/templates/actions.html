@@ -1,17 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Forge0 — Actions{% endblock %}
+{% block title %}Workflow runs · Forge0{% endblock %}
 
 {% block content %}
 <div class="actions-page">
-  <div class="panel">
+  <div class="page-header">
+    <div>
+      <div class="page-eyebrow">Automation</div>
+      <h1>Workflow runs</h1>
+      <p>Track builds and checks across every repository. This view refreshes automatically.</p>
+    </div>
+    <div class="page-actions"><a class="btn" href="/gitea/actions">Open Actions in Gitea ↗</a></div>
+  </div>
+  <section class="panel" aria-labelledby="runs-title">
     <div class="panel-header">
-      <h2>Workflow Runs</h2>
+      <div><h2 id="runs-title">Recent runs</h2><div class="panel-subtitle">Newest activity first</div></div>
       <span class="badge">{{ runs|length }}</span>
     </div>
-    <div id="runs-table"
-         hx-get="/partials/runs" hx-trigger="every 10s" hx-swap="innerHTML">
+    <div id="runs-table" hx-get="/partials/runs" hx-trigger="every 10s" hx-swap="innerHTML">
       {% include "_runs.html" %}
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}

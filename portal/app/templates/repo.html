@@ -1,139 +1,97 @@
 {% extends "base.html" %}
-{% block title %}Forge0 — {{ repo.full_name }}{% endblock %}
+{% block title %}{{ repo.full_name }} · Forge0{% endblock %}
 
 {% block content %}
 <div class="repo-detail">
-
   <div class="repo-header">
-    <h1>
-      <a href="{{ gitea_url }}/{{ repo.full_name }}" target="_blank">{{ repo.full_name }}</a>
-    </h1>
-    {% if repo.description %}
-    <p class="repo-desc-full">{{ repo.description }}</p>
-    {% endif %}
+    <div class="page-eyebrow">Repository</div>
+    <h1><a href="/gitea/{{ repo.full_name }}">{{ repo.full_name }}</a></h1>
+    {% if repo.description %}<p class="repo-desc-full">{{ repo.description }}</p>{% endif %}
     <div class="repo-stats-row">
-      <span>{{ repo.stars_count or 0 }} stars</span>
-      <span>{{ repo.forks_count or 0 }} forks</span>
-      <span>{{ repo.open_issues_count or 0 }} issues</span>
+      <span>★ {{ repo.stars_count or 0 }}</span>
+      <span>⑂ {{ repo.forks_count or 0 }}</span>
+      <span>◉ {{ repo.open_issues_count or 0 }} open</span>
       <span>{{ repo.size | format_size }}</span>
-      <span>default: <code>{{ repo.default_branch }}</code></span>
-      <a href="/repo/{{ repo.full_name }}/chat" class="btn btn-primary">
-        💬 Chat with Project
-      </a>
+      <span>Branch <code>{{ repo.default_branch }}</code></span>
+      <span class="repo-actions">
+        <a href="/repo/{{ repo.full_name }}/chat" class="btn btn-primary">Ask about this project</a>
+        <a href="/gitea/{{ repo.full_name }}" class="btn">Browse in Gitea ↗</a>
+      </span>
     </div>
   </div>
 
   <div class="detail-grid">
-
-    {# ── LEFT: file tree + readme ── #}
     <div class="detail-left">
-
       {% if file_tree %}
-      <div class="panel">
-        <div class="panel-header"><h3>Files</h3></div>
+      <section class="panel" aria-labelledby="files-title">
+        <div class="panel-header"><div><h2 id="files-title">Files</h2><div class="panel-subtitle">{{ repo.default_branch }} branch</div></div></div>
         <div class="file-tree">
           {% for f in file_tree|sort(attribute='type', reverse=true) %}
-          <div class="file-entry {{ f.type }}">
-            {% if f.type == 'dir' %}
-              <span class="icon">📁</span> {{ f.name }}/
-            {% else %}
-              <span class="icon">📄</span> {{ f.name }}
-            {% endif %}
-          </div>
+          <a class="file-entry file-link {{ f.type }}"
+             href="/gitea/{{ repo.full_name }}/src/branch/{{ repo.default_branch }}/{{ f.name }}">
+            <span aria-hidden="true">{% if f.type == 'dir' %}▸{% else %}·{% endif %}</span>
+            <span>{{ f.name }}{% if f.type == 'dir' %}/{% endif %}</span>
+          </a>
           {% endfor %}
         </div>
-      </div>
+      </section>
       {% endif %}
 
       {% if readme %}
-      <div class="panel">
-        <div class="panel-header"><h3>README</h3></div>
-        <div class="readme-body">
-          <pre>{{ readme }}</pre>
-        </div>
-      </div>
+      <section class="panel" aria-labelledby="readme-title">
+        <div class="panel-header"><h2 id="readme-title">README</h2><a class="btn btn-quiet" href="/gitea/{{ repo.full_name }}/src/branch/{{ repo.default_branch }}/README.md">Open file ↗</a></div>
+        <div class="readme-body"><pre>{{ readme }}</pre></div>
+      </section>
+      {% else %}
+      <section class="panel"><div class="empty-state"><strong>No README found</strong><br>Add a README to explain how to use this project.</div></section>
       {% endif %}
-
     </div>
 
-    {# ── RIGHT: activity sidebar ── #}
-    <div class="detail-right">
-
-      {# actions #}
+    <aside class="detail-right" aria-label="Repository activity">
       {% if runs %}
-      <div class="panel">
-        <div class="panel-header"><h3>Actions</h3></div>
+      <section class="panel">
+        <div class="panel-header"><h2>Recent automation</h2><a href="/actions" class="btn btn-quiet">All runs</a></div>
         <div class="runs-compact">
           {% for run in runs[:8] %}
           <div class="run-mini">
-            {% if run.status == 'success' %}
-              <span class="status-dot ok"></span>
-            {% elif run.status == 'failure' %}
-              <span class="status-dot err"></span>
-            {% elif run.status in ('running', 'waiting') %}
-              <span class="status-dot running"></span>
-            {% else %}
-              <span class="status-dot"></span>
-            {% endif %}
-            <span class="run-name">{{ run.name or '—' }}</span>
+            <span class="status-dot {% if run.status == 'success' %}ok{% elif run.status == 'failure' %}err{% elif run.status in ('running', 'waiting') %}running{% endif %}"></span>
+            <span class="run-name">{{ run.name or 'Unnamed workflow' }}</span>
             <span class="run-ago">{{ run.updated_at | time_ago }}</span>
           </div>
           {% endfor %}
         </div>
-      </div>
+      </section>
       {% endif %}
 
-      {# commits #}
       {% if commits %}
-      <div class="panel">
-        <div class="panel-header"><h3>Recent Commits</h3></div>
+      <section class="panel">
+        <div class="panel-header"><h2>Recent commits</h2></div>
         <div class="commit-list">
-          {% for c in commits[:10] %}
-          <div class="commit-item">
+          {% for c in commits[:8] %}
+          <a class="commit-item" href="/gitea/{{ repo.full_name }}/commit/{{ c.sha }}">
             <code class="commit-sha">{{ c.sha[:7] }}</code>
             <span class="commit-msg">{{ c.commit.message.split('\n')[0][:80] }}</span>
             <span class="commit-ago">{{ c.commit.author.date | time_ago if c.commit and c.commit.author else '' }}</span>
-          </div>
+          </a>
           {% endfor %}
         </div>
-      </div>
+      </section>
       {% endif %}
 
-      {# issues #}
       {% if issues %}
-      <div class="panel">
-        <div class="panel-header">
-          <h3>Open Issues</h3>
-          <span class="badge">{{ issues|length }}</span>
-        </div>
-        {% for issue in issues[:5] %}
-        <div class="issue-item">
-          <span class="issue-num">#{{ issue.number }}</span>
-          <span class="issue-title">{{ issue.title[:60] }}</span>
-        </div>
-        {% endfor %}
-      </div>
+      <section class="panel">
+        <div class="panel-header"><h2>Open issues</h2><span class="badge">{{ issues|length }}</span></div>
+        {% for issue in issues[:5] %}<a class="issue-item" href="/gitea/{{ repo.full_name }}/issues/{{ issue.number }}"><span class="issue-num">#{{ issue.number }}</span><span class="issue-title">{{ issue.title[:60] }}</span></a>{% endfor %}
+      </section>
       {% endif %}
 
-      {# pulls #}
       {% if pulls %}
-      <div class="panel">
-        <div class="panel-header">
-          <h3>Pull Requests</h3>
-          <span class="badge">{{ pulls|length }}</span>
-        </div>
-        {% for pr in pulls[:5] %}
-        <div class="issue-item">
-          <span class="issue-num">#{{ pr.number }}</span>
-          <span class="issue-title">{{ pr.title[:60] }}</span>
-        </div>
-        {% endfor %}
-      </div>
+      <section class="panel">
+        <div class="panel-header"><h2>Pull requests</h2><span class="badge">{{ pulls|length }}</span></div>
+        {% for pr in pulls[:5] %}<a class="issue-item" href="/gitea/{{ repo.full_name }}/pulls/{{ pr.number }}"><span class="issue-num">#{{ pr.number }}</span><span class="issue-title">{{ pr.title[:60] }}</span></a>{% endfor %}
+      </section>
       {% endif %}
-
-    </div>
-
+    </aside>
   </div>
-
 </div>
 {% endblock %}

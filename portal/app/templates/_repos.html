@@ -2,7 +2,7 @@
 <div class="repos-grid">
   {% for repo in repos %}
   <a href="/repo/{{ repo.owner.login }}/{{ repo.name }}" class="repo-card">
-    <div class="repo-name">{{ repo.owner.login }}/{{ repo.name }}</div>
+    <div class="repo-name">{{ repo.owner.login }}/{{ repo.name }} <span aria-hidden="true">→</span></div>
     {% if repo.description %}
     <div class="repo-desc">{{ repo.description }}</div>
     {% endif %}
@@ -15,5 +15,5 @@
   {% endfor %}
 </div>
 {% else %}
-<div class="empty">No repositories yet</div>
+<div class="empty-state"><strong>No repositories yet</strong><br>Create one in Gitea to get started.</div>
 {% endif %}

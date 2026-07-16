@@ -1,24 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Forge0 — Dashboard{% endblock %}
+{% block title %}Overview · Forge0{% endblock %}
 
 {% block content %}
 <div class="dashboard" id="projects">
+  <div class="page-header">
+    <div>
+      <div class="page-eyebrow">Workspace overview</div>
+      <h1>Build, review, and ship with context.</h1>
+      <p>One place to see repository activity, automation health, and supervised Forge0 work.</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn" href="/actions">View workflow runs</a>
+      <a class="btn btn-primary" href="/gitea/repo/create">New repository ↗</a>
+    </div>
+  </div>
 
-  <div class="stats-bar" id="stats-bar"
+  <div class="stats-bar" id="stats-bar" aria-label="Workspace metrics"
        hx-get="/partials/stats" hx-trigger="every 8s" hx-swap="innerHTML">
     {% include "_stats.html" %}
   </div>
 
-  <section class="panel">
+  <section class="panel" aria-labelledby="repositories-title">
     <div class="panel-header">
-      <h2>Repositories</h2>
+      <div>
+        <h2 id="repositories-title">Repositories</h2>
+        <div class="panel-subtitle">Recently updated projects in this workspace</div>
+      </div>
       <span class="badge">{{ repos|length }}</span>
     </div>
-    <div id="repos-grid"
-         hx-get="/partials/repos" hx-trigger="every 15s" hx-swap="innerHTML">
+    <div id="repos-grid" hx-get="/partials/repos" hx-trigger="every 15s" hx-swap="innerHTML">
       {% include "_repos.html" %}
     </div>
   </section>
-
 </div>
 {% endblock %}

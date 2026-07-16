@@ -1,15 +1,15 @@
 <div class="stats">
   <div class="stat-card">
     <div class="stat-value">{{ stats.total_repos }}</div>
-    <div class="stat-label">Repos</div>
+    <div class="stat-label">Repositories</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ stats.active_today }}</div>
-    <div class="stat-label">Active Today</div>
+    <div class="stat-label">Active today</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ stats.active_week }}</div>
-    <div class="stat-label">Active This Week</div>
+    <div class="stat-label">Active this week</div>
   </div>
   <div class="stat-card {% if actions_stats.running > 0 %}pulse{% endif %}">
     <div class="stat-value">{{ actions_stats.running }}</div>

@@ -1,36 +1,53 @@
 {% extends "base.html" %}
-{% block title %}Forge0 — Self-extension{% endblock %}
+{% block title %}Self-extension · Forge0{% endblock %}
 
 {% block content %}
-<div class="dashboard">
+<div class="dogfood-page">
   <div class="page-header">
     <div>
+      <div class="page-eyebrow">Supervised automation</div>
       <h1>Self-extension</h1>
-      <p>Issue-to-draft-PR runs for <code>{{ config.full_name }}</code>.</p>
+      <p>Follow issue-to-draft-PR work for <code>{{ config.full_name }}</code>, including failures, repairs, and review outcomes.</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn" href="/gitea/{{ config.full_name }}/issues">View source issues ↗</a>
+      <a class="btn btn-primary" href="/gitea/{{ config.full_name }}/issues/new">Create an issue ↗</a>
     </div>
   </div>
 
-  <div class="panel">
-    <div class="panel-header"><h3>Safety boundary</h3></div>
-    <div class="readme-body">
-      <p>Runs require the <code>{{ config.trigger_label }}</code> label and an
-      <code>Acceptance Criteria</code> section. Forge0 works in a disposable clone,
-      verifies the patch, and stops after opening a draft pull request.</p>
-      <p>Manual trigger:</p>
-      <pre>curl -X POST \
+  <div class="safety-grid">
+    <section class="panel">
+      <div class="panel-header"><div><h2>How a run stays bounded</h2><div class="panel-subtitle">Publication stops at a draft pull request</div></div></div>
+      <div class="readme-body">
+        <ul class="boundary-list">
+          <li>Requires the <code>{{ config.trigger_label }}</code> label</li>
+          <li>Requires explicit acceptance criteria</li>
+          <li>Works in a disposable repository clone</li>
+          <li>Runs fixed operator-owned checks</li>
+          <li>Applies file, diff, context, and token limits</li>
+          <li>Never merges or deploys automatically</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header"><h2>Manual trigger</h2></div>
+      <div class="readme-body">
+        <p>After preparing and labeling an issue, an operator can start it through the authenticated endpoint:</p>
+        <pre class="code-block">curl -X POST \
   -H "X-Forge0-Operator-Token: $FORGE0_OPERATOR_TOKEN" \
   http://localhost:3001/api/dogfood/run/{{ config.self_owner }}/{{ config.self_repo }}/ISSUE</pre>
-    </div>
+      </div>
+    </section>
   </div>
 
-  <div class="panel">
-    <div class="panel-header"><h3>Runs</h3></div>
-    <div id="dogfood-runs"
-         hx-get="/partials/dogfood-runs"
-         hx-trigger="every 5s"
-         hx-swap="innerHTML">
+  <section class="panel" aria-labelledby="dogfood-runs-title">
+    <div class="panel-header">
+      <div><h2 id="dogfood-runs-title">Recent runs</h2><div class="panel-subtitle">Live status, newest first · refreshes every 5 seconds</div></div>
+      <span class="badge">{{ runs|length }}</span>
+    </div>
+    <div id="dogfood-runs" hx-get="/partials/dogfood-runs" hx-trigger="every 5s" hx-swap="innerHTML">
       {% include "_dogfood_runs.html" %}
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}

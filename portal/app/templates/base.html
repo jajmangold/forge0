@@ -1,139 +1,166 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Forge0{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>{% block title %}Forge0{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body>
-    <div class="app">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
-                <a href="/" class="logo">
-                    <span class="logo-icon">⚡</span>
-                    <span class="logo-text">Forge0</span>
-                </a>
-            </div>
-            <div class="header-center">
-                <div class="search-box" onclick="openCommandPalette()">
-                    <span class="search-icon">🔍</span>
-                    <span class="search-text">Search or run command...</span>
-                    <kbd>Ctrl+K</kbd>
-                </div>
-            </div>
-            <div class="header-right">
-                <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
-                <div class="user-menu">
-                    <span class="avatar" aria-label="Forge0 user">⚙️</span>
-                </div>
-            </div>
-        </header>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <button class="icon-button menu-toggle" type="button" aria-label="Toggle navigation"
+                aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">
+          <span aria-hidden="true">☰</span>
+        </button>
+        <a href="/" class="logo" aria-label="Forge0 home">
+          <span class="logo-mark" aria-hidden="true">F0</span>
+          <span class="logo-text">Forge0</span>
+        </a>
+        <span class="environment-pill">Local workspace</span>
+      </div>
+      <button class="command-trigger" type="button" onclick="openCommandPalette()"
+              aria-haspopup="dialog" aria-controls="commandPalette">
+        <span aria-hidden="true">⌕</span>
+        <span>Jump to a page</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+      <div class="header-right">
+        <a class="header-link" href="/gitea/" title="Open Gitea">Gitea ↗</a>
+        <button class="icon-button theme-toggle" type="button" aria-label="Toggle color theme"
+                onclick="toggleTheme()"><span id="themeIcon" aria-hidden="true">☾</span></button>
+      </div>
+    </header>
 
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <nav class="nav">
-                <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}">
-                    <span class="nav-icon">📊</span>
-                    <span class="nav-text">Dashboard</span>
-                </a>
-                <a href="/#projects" class="nav-item">
-                    <span class="nav-icon">📁</span>
-                    <span class="nav-text">Projects</span>
-                </a>
-                <a href="/gitea/issues" class="nav-item">
-                    <span class="nav-icon">🐛</span>
-                    <span class="nav-text">Issues</span>
-                </a>
-                <a href="/gitea/pulls" class="nav-item">
-                    <span class="nav-icon">🔀</span>
-                    <span class="nav-text">Pull Requests</span>
-                </a>
-                <a href="/actions" class="nav-item {% if page == 'actions' %}active{% endif %}">
-                    <span class="nav-icon">⚡</span>
-                    <span class="nav-text">Actions</span>
-                </a>
-                <a href="/dogfood" class="nav-item {% if page == 'dogfood' %}active{% endif %}">
-                    <span class="nav-icon">♻️</span>
-                    <span class="nav-text">Self-extension</span>
-                </a>
-                <a href="/gitea/" class="nav-item">
-                    <span class="nav-icon">🔧</span>
-                    <span class="nav-text">Gitea</span>
-                </a>
-            </nav>
-            
-            <div class="sidebar-section">
-                <h3 class="sidebar-title">Projects</h3>
-                <div class="project-list">
-                    {% for repo in repos %}
-                    <a href="/repo/{{ repo.full_name }}" class="project-item">
-                        <span class="project-icon">📦</span>
-                        <span class="project-name">{{ repo.name }}</span>
-                    </a>
-                    {% endfor %}
-                </div>
-            </div>
-        </aside>
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <nav class="nav">
+        <p class="nav-label">Workspace</p>
+        <a href="/" class="nav-item {% if page == 'dashboard' %}active{% endif %}"
+           {% if page == 'dashboard' %}aria-current="page"{% endif %}>
+          <span class="nav-icon" aria-hidden="true">⌂</span><span>Overview</span>
+        </a>
+        <a href="/actions" class="nav-item {% if page == 'actions' %}active{% endif %}"
+           {% if page == 'actions' %}aria-current="page"{% endif %}>
+          <span class="nav-icon" aria-hidden="true">▶</span><span>Workflow runs</span>
+        </a>
+        <a href="/dogfood" class="nav-item {% if page == 'dogfood' %}active{% endif %}"
+           {% if page == 'dogfood' %}aria-current="page"{% endif %}>
+          <span class="nav-icon" aria-hidden="true">↻</span><span>Self-extension</span>
+        </a>
 
-        <!-- Main Content -->
-        <main class="main">
-            {% block content %}{% endblock %}
-        </main>
+        <p class="nav-label nav-label-spaced">Code &amp; review</p>
+        <a href="/gitea/issues" class="nav-item"><span class="nav-icon" aria-hidden="true">◉</span><span>Issues</span></a>
+        <a href="/gitea/pulls" class="nav-item"><span class="nav-icon" aria-hidden="true">⑂</span><span>Pull requests</span></a>
+        <a href="/gitea/" class="nav-item"><span class="nav-icon" aria-hidden="true">◇</span><span>Repositories in Gitea</span></a>
+      </nav>
+
+      {% if repos %}
+      <div class="sidebar-projects">
+        <p class="nav-label">Recent repositories</p>
+        {% for repo in repos[:6] %}
+        <a href="/repo/{{ repo.full_name }}" class="project-item">
+          <span class="project-avatar" aria-hidden="true">{{ repo.name[:1] | upper }}</span>
+          <span class="project-name">{{ repo.name }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="sidebar-footer">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Services connected</span>
+      </div>
+    </aside>
+    <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="Close navigation"
+            onclick="closeSidebar()"></button>
+
+    <main class="main" id="main-content" tabindex="-1">
+      <div class="content-shell">{% block content %}{% endblock %}</div>
+    </main>
+  </div>
+
+  <div class="command-palette" id="commandPalette" role="dialog" aria-modal="true"
+       aria-labelledby="commandTitle" onclick="if(event.target === this) closeCommandPalette()">
+    <div class="command-dialog">
+      <div class="command-input-wrap">
+        <span aria-hidden="true">⌕</span>
+        <input type="search" placeholder="Search pages…" id="commandInput" autocomplete="off"
+               aria-label="Search pages" oninput="filterCommands()">
+        <button class="key-button" type="button" onclick="closeCommandPalette()">Esc</button>
+      </div>
+      <div class="command-results" id="commandResults">
+        <p class="command-group-label" id="commandTitle">Navigate</p>
+        <a class="command-item" data-search="overview dashboard repositories projects" href="/"><span>⌂</span><span><strong>Overview</strong><small>Health and repositories</small></span></a>
+        <a class="command-item" data-search="actions workflows runs ci" href="/actions"><span>▶</span><span><strong>Workflow runs</strong><small>Build and automation status</small></span></a>
+        <a class="command-item" data-search="self extension dogfood agent runs" href="/dogfood"><span>↻</span><span><strong>Self-extension</strong><small>Supervised agent activity</small></span></a>
+        <a class="command-item" data-search="issues bugs tasks" href="/gitea/issues"><span>◉</span><span><strong>Issues</strong><small>Open work in Gitea</small></span></a>
+        <a class="command-item" data-search="pull requests review drafts" href="/gitea/pulls"><span>⑂</span><span><strong>Pull requests</strong><small>Review proposed changes</small></span></a>
+        <a class="command-item" data-search="gitea repositories source code" href="/gitea/"><span>◇</span><span><strong>Gitea</strong><small>Full source control interface</small></span></a>
+        <p class="command-empty" id="commandEmpty" hidden>No matching pages</p>
+      </div>
     </div>
+  </div>
 
-    <!-- Command Palette -->
-    <div class="command-palette" id="commandPalette">
-        <div class="command-input">
-            <input type="text" placeholder="Type a command..." id="commandInput">
-        </div>
-        <div class="command-results" id="commandResults">
-            <!-- Results populated by JS -->
-        </div>
-    </div>
+  <script>
+    const root = document.documentElement;
+    const sidebar = document.getElementById('sidebar');
+    const menuButton = document.querySelector('.menu-toggle');
+    const palette = document.getElementById('commandPalette');
+    const commandInput = document.getElementById('commandInput');
 
-    <script>
-        // Theme toggle
-        function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-        }
-
-        // Sidebar toggle
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('collapsed');
-        }
-
-        // Command palette
-        function openCommandPalette() {
-            document.getElementById('commandPalette').classList.add('open');
-            document.getElementById('commandInput').focus();
-        }
-
-        function closeCommandPalette() {
-            document.getElementById('commandPalette').classList.remove('open');
-        }
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-                e.preventDefault();
-                openCommandPalette();
-            }
-            if (e.key === 'Escape') {
-                closeCommandPalette();
-            }
-        });
-
-        // Load saved theme
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-    </script>
+    function updateThemeIcon() {
+      document.getElementById('themeIcon').textContent = root.dataset.theme === 'dark' ? '☾' : '☀';
+    }
+    function toggleTheme() {
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', root.dataset.theme);
+      updateThemeIcon();
+    }
+    function toggleSidebar() {
+      if (window.matchMedia('(max-width: 860px)').matches) {
+        const open = sidebar.classList.toggle('open');
+        document.body.classList.toggle('nav-open', open);
+        menuButton.setAttribute('aria-expanded', String(open));
+      } else {
+        document.querySelector('.app').classList.toggle('sidebar-collapsed');
+      }
+    }
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      document.body.classList.remove('nav-open');
+      menuButton.setAttribute('aria-expanded', 'false');
+    }
+    function openCommandPalette() {
+      palette.classList.add('open');
+      commandInput.value = '';
+      filterCommands();
+      requestAnimationFrame(() => commandInput.focus());
+    }
+    function closeCommandPalette() {
+      palette.classList.remove('open');
+    }
+    function filterCommands() {
+      const query = commandInput.value.trim().toLowerCase();
+      let visible = 0;
+      document.querySelectorAll('.command-item').forEach(item => {
+        const match = !query || item.dataset.search.includes(query) || item.textContent.toLowerCase().includes(query);
+        item.hidden = !match;
+        if (match) visible += 1;
+      });
+      document.getElementById('commandEmpty').hidden = visible !== 0;
+    }
+    document.addEventListener('keydown', event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault(); openCommandPalette();
+      }
+      if (event.key === 'Escape') { closeCommandPalette(); closeSidebar(); }
+    });
+    root.dataset.theme = localStorage.getItem('theme') || 'dark';
+    updateThemeIcon();
+  </script>
 </body>
 </html>

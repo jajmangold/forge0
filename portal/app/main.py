@@ -255,7 +255,17 @@ async def repo_detail(request: Request, owner: str, name: str):
     )
     # Handle errors gracefully
     if isinstance(repo, Exception):
-        return HTMLResponse(f"<h1>Repo not found</h1><p>{repo}</p>", status_code=404)
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "title": "Repository not found",
+                "message": "The repository may have moved, been removed, or is temporarily unavailable.",
+                "status_code": 404,
+                "page": "repos",
+            },
+            status_code=404,
+        )
 
     readme = None
     try:
