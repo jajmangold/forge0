@@ -762,6 +762,41 @@ async def test_supervisor_schedules_durable_queued_runs_and_cleans_stale_workspa
     assert not service._tasks
 
 
+@pytest.mark.asyncio
+async def test_discovery_creates_one_deduplicated_ready_issue_for_repeated_failure(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path, auto_discovery_enabled=True))
+    for run_id, count in (("failed-one", 2), ("failed-two", 3)):
+        service.store.save(
+            RunRecord(
+                id=run_id,
+                owner="agent",
+                repo="forge0",
+                issue_number=count,
+                issue_title="Failure",
+                status=RunStatus.FAILED,
+                error=f"Budget exhausted after {count} calls",
+            )
+        )
+    create = AsyncMock(return_value={"number": 40})
+
+    with (
+        patch("app.dogfood.gitea.list_issues", new=AsyncMock(return_value=[])),
+        patch(
+            "app.dogfood.gitea.list_labels",
+            new=AsyncMock(return_value=[{"id": 7, "name": "agent:ready"}]),
+        ),
+        patch("app.dogfood.gitea.create_issue", new=create),
+    ):
+        await service._discover_failures()
+
+    create.assert_awaited_once()
+    request = create.await_args.kwargs
+    assert request["label_ids"] == [7]
+    assert "Occurrences: 2" in request["body"]
+    assert "<!-- forge0-discovery:" in request["body"]
+    assert "portal/app/dogfood.py" in request["body"]
+
+
 def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("FORGE0_DATA_DIR", os.fspath(tmp_path))
     monkeypatch.setenv("FORGE0_SELF_REPO", "agent/forge0")
@@ -1947,3 +1982,14 @@ def test_concurrent_run_configuration_enforces_hard_cap(monkeypatch, tmp_path) -
 
     monkeypatch.setenv("FORGE0_MAX_CONCURRENT_RUNS", "2")
     assert DogfoodConfig.from_env().max_concurrent_runs == 2
+
+
+def test_discovery_occurrence_configuration_enforces_hard_cap(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("FORGE0_DATA_DIR", os.fspath(tmp_path))
+    monkeypatch.setenv("FORGE0_SELF_REPO", "agent/forge0")
+    monkeypatch.setenv("FORGE0_DISCOVERY_MIN_OCCURRENCES", "1")
+    with pytest.raises(ValueError, match="between 2 and 10"):
+        DogfoodConfig.from_env()
+
+    monkeypatch.setenv("FORGE0_DISCOVERY_MIN_OCCURRENCES", "4")
+    assert DogfoodConfig.from_env().discovery_min_occurrences == 4
