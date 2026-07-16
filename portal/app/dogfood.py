@@ -563,6 +563,7 @@ class DogfoodService:
                         model=self.config.coder_model,
                         temperature=0.1,
                         max_tokens=20_000,
+                        response_format={"type": "json_object"},
                     )
                     self._add_usage(record, code_result.usage)
                     try:
@@ -742,6 +743,7 @@ class DogfoodService:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                response_format={"type": "json_object"},
             )
             self._add_usage(record, result.usage)
             try:

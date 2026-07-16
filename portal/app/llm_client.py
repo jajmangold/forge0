@@ -98,6 +98,7 @@ class LLMClient:
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        response_format: dict[str, str] | None = None,
     ) -> ChatResult:
         """Send a chat completion request and return full result with usage."""
         resolved_model = self._resolve_model(model)
@@ -108,6 +109,8 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if response_format is not None:
+            body["response_format"] = response_format
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",

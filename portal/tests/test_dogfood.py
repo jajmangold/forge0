@@ -271,6 +271,7 @@ async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
     assert record.correction_errors == ["planner: LLM response did not contain a JSON object"]
     correction = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
     assert "valid JSON object only" in correction
+    assert client.chat_with_usage.await_args_list[0].kwargs["response_format"] == {"type": "json_object"}
 
 
 @pytest.mark.asyncio
