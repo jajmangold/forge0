@@ -99,12 +99,27 @@ def test_oauth_rejects_tampered_state_and_unapproved_users(monkeypatch) -> None:
         f"/auth/callback?code=code&state={state}x", follow_redirects=False
     )
     assert tampered.status_code == 400
+    assert "Sign-in expired" in tampered.text
+    assert "Sign in again" in tampered.text
 
     config = auth.AuthConfig.from_env()
     assert config is not None
     with pytest.raises(HTTPException) as rejected:
         auth.normalize_identity({"preferred_username": "agent"}, config)
     assert rejected.value.status_code == 403
+
+    login = oauth_client.get("/auth/login", follow_redirects=False)
+    allowed_state = parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
+    with patch(
+        "app.main.auth.exchange_code",
+        new=AsyncMock(return_value={"preferred_username": "agent"}),
+    ):
+        denied = oauth_client.get(
+            f"/auth/callback?code=valid-code&state={allowed_state}", follow_redirects=False
+        )
+    assert denied.status_code == 403
+    assert "Account not allowed" in denied.text
+    assert "portal-secret" not in denied.text
 
 
 def test_signed_session_expires_and_detects_tampering() -> None:

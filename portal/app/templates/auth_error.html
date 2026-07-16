@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} · Forge0{% endblock %}
+
+{% block content %}
+<section class="auth-error-card" aria-labelledby="auth-error-title">
+  <span class="auth-error-icon" aria-hidden="true">!</span>
+  <p class="eyebrow">Gitea authentication</p>
+  <h1 id="auth-error-title">{{ title }}</h1>
+  <p>{{ message }}</p>
+  <a class="primary-button" href="/auth/login">Sign in again</a>
+</section>
+{% endblock %}

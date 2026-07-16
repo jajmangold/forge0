@@ -297,3 +297,9 @@ td a { font-weight: 650; text-decoration: none; }
   .runs-list td::before { content: attr(data-label); color: var(--text-muted); font-size: 10px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+.auth-error-card { max-width: 520px; margin: 10vh auto 0; padding: 40px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow); text-align: center; }
+.auth-error-card h1 { margin: 8px 0 12px; }
+.auth-error-card p:not(.eyebrow) { margin: 0 auto 24px; color: var(--text-secondary); line-height: 1.6; }
+.auth-error-icon { width: 44px; height: 44px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--danger-soft); color: var(--danger); font-size: 22px; font-weight: 800; }
+.auth-error-card .primary-button { display: inline-flex; min-height: 40px; align-items: center; padding: 9px 18px; border-radius: 9px; background: var(--accent); color: white; font-weight: 700; text-decoration: none; }

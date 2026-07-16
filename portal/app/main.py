@@ -81,10 +81,32 @@ async def auth_callback(request: Request, code: str = "", state: str = ""):
         raise HTTPException(status_code=503, detail="Gitea OAuth is not configured")
     saved = auth.unsign(request.cookies.get(auth.STATE_COOKIE, ""), config.session_secret, auth.STATE_MAX_AGE)
     if not code or not state or not saved or not hmac.compare_digest(state, str(saved.get("nonce", ""))):
-        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
-    identity = auth.normalize_identity(
-        await auth.exchange_code(config, code, str(saved.get("verifier", ""))), config
-    )
+        return templates.TemplateResponse(
+            request,
+            "auth_error.html",
+            {
+                "title": "Sign-in expired",
+                "message": "Your Gitea sign-in request expired or is invalid. Start a fresh sign-in to continue.",
+                "status_code": 400,
+            },
+            status_code=400,
+        )
+    identity_data = await auth.exchange_code(config, code, str(saved.get("verifier", "")))
+    try:
+        identity = auth.normalize_identity(identity_data, config)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        return templates.TemplateResponse(
+            request,
+            "auth_error.html",
+            {
+                "title": "Account not allowed",
+                "message": "This Gitea account is not allowed to use Forge0.",
+                "status_code": 403,
+            },
+            status_code=403,
+        )
     response = RedirectResponse(auth.safe_next(str(saved.get("next", "/"))), status_code=302)
     response.set_cookie(
         auth.SESSION_COOKIE,
