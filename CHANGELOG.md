@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- add shared contract ledger
 - make sign-in failures recoverable
 - use Gitea identity across portal
 - render project docs and report outages
@@ -71,6 +72,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
