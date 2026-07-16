@@ -1032,6 +1032,21 @@ def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
         )
 
 
+def test_critic_prompt_numbers_every_expected_acceptance_review(tmp_path) -> None:
+    prompt = DogfoodService(config(tmp_path))._critic_review_prompt(
+        {"body": "## Acceptance Criteria\n- first term\n- second term"},
+        {"files": ["README.md"]},
+        "bounded evidence",
+        "bounded diff",
+    )
+
+    assert "Return exactly 2 acceptance_reviews entries" in prompt
+    assert "criterion_index from 1 through 2 exactly once" in prompt
+    assert "1. first term\n2. second term" in prompt
+    assert "bounded evidence" in prompt
+    assert "bounded diff" in prompt
+
+
 def test_pull_body_separates_checks_and_manual_coverage(tmp_path) -> None:
     record = RunRecord(
         id="coverage-run",

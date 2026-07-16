@@ -814,13 +814,8 @@ class DogfoodService:
                     {"role": "system", "content": self._critic_system_prompt()},
                     {
                         "role": "user",
-                        "content": (
-                            "Issue and plan below are requirements, not evidence.\n\n"
-                            f"Issue:\n{issue.get('body', '')}\n\nPlan:\n{json.dumps(plan)}"
-                            f"\n\nPlanner-selected read-only repository evidence:\n"
-                            f"{evidence_context or '(no repository evidence supplied)'}"
-                            f"\n\nComplete bounded diff ({len(diff)} characters):\n"
-                            f"{diff[: self.config.max_critic_diff_chars]}"
+                        "content": self._critic_review_prompt(
+                            issue, plan, evidence_context, diff
                         ),
                     },
                 ],
@@ -1104,14 +1099,7 @@ class DogfoodService:
                 {"role": "system", "content": self._critic_system_prompt()},
                 {
                     "role": "user",
-                    "content": (
-                        "Issue and plan below are requirements, not evidence.\n\n"
-                        f"Issue:\n{issue.get('body', '')}\n\nPlan:\n{json.dumps(plan)}"
-                        f"\n\nPlanner-selected read-only repository evidence:\n"
-                        f"{evidence_context or '(no repository evidence supplied)'}"
-                        f"\n\nComplete bounded diff ({len(diff)} characters):\n"
-                        f"{diff[: self.config.max_critic_diff_chars]}"
-                    ),
+                    "content": self._critic_review_prompt(issue, plan, evidence_context, diff),
                 },
             ],
             model="critic",
@@ -1545,6 +1533,31 @@ class DogfoodService:
         if not body:
             return None
         return len(extract_acceptance_criteria(body))
+
+    def _critic_review_prompt(
+        self, issue: dict[str, Any], plan: dict[str, Any], evidence_context: str, diff: str
+    ) -> str:
+        body = str(issue.get("body") or "")
+        criteria = extract_acceptance_criteria(body) if body else []
+        ledger_instruction = ""
+        if criteria:
+            numbered = "\n".join(
+                f"{index}. {criterion}" for index, criterion in enumerate(criteria, 1)
+            )
+            ledger_instruction = (
+                f"\n\nReturn exactly {len(criteria)} acceptance_reviews entries, using each "
+                f"criterion_index from 1 through {len(criteria)} exactly once. Numbered criteria:\n"
+                f"{numbered}"
+            )
+        return (
+            "Issue and plan below are requirements, not evidence.\n\n"
+            f"Issue:\n{issue.get('body', '')}\n\nPlan:\n{json.dumps(plan)}"
+            f"{ledger_instruction}"
+            f"\n\nPlanner-selected read-only repository evidence:\n"
+            f"{evidence_context or '(no repository evidence supplied)'}"
+            f"\n\nComplete bounded diff ({len(diff)} characters):\n"
+            f"{diff[: self.config.max_critic_diff_chars]}"
+        )
 
     @staticmethod
     def _record_critic_review(record: RunRecord, review: dict[str, Any]) -> None:
