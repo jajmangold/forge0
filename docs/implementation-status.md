@@ -67,6 +67,10 @@ as deployed on canonical main.
   findings, also restricted to the original planned paths.
 - **Structured critic findings.** Bounded, staged-path-validated findings are
   persisted alongside normalized critic feedback and supplied to repair.
+  Every normalized critic decision is appended to `critic_reviews`; each
+  history entry records a 1-based attempt number and the repair count at
+  that decision. The `critic_feedback` and `critic_findings` fields remain
+  compatibility fields containing the latest decision.
 - **Evidence-grounded criticism.** A plan may select at most three existing
   read-only repository files, disjoint from changed files; selected evidence
   context is capped at 60,000 characters and supplied to both initial and
