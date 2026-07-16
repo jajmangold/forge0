@@ -247,6 +247,21 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
 
 
 @pytest.mark.asyncio
+async def test_stage_and_measure_preserves_bounded_diff_for_critic(tmp_path) -> None:
+    workspace = GitWorkspace(tmp_path / "workspace", config(tmp_path), "token")
+    workspace._git = AsyncMock(
+        side_effect=["", "kernels/example/kernel.cu\n", "2\t0\tkernels/example/kernel.cu\n", "full diff"]
+    )
+
+    names, lines, diff = await workspace.stage_and_measure()
+
+    assert names == ["kernels/example/kernel.cu"]
+    assert lines == 2
+    assert diff == "full diff"
+    assert workspace._git.await_args_list[-1].kwargs["max_output_chars"] == 160001
+
+
+@pytest.mark.asyncio
 async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     record = RunRecord(id="json-run", owner="agent", repo="forge0", issue_number=10, issue_title="JSON")

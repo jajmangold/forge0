@@ -343,7 +343,13 @@ class GitWorkspace:
             if added == "-" or deleted == "-":
                 raise DogfoodError("Binary changes are not permitted")
             lines += int(added) + int(deleted)
-        diff = await self._git("diff", "--cached", "--no-ext-diff", "--unified=3")
+        diff = await self._git(
+            "diff",
+            "--cached",
+            "--no-ext-diff",
+            "--unified=3",
+            max_output_chars=self.config.max_critic_diff_chars + 1,
+        )
         return names, lines, diff
 
     async def verify(self) -> list[dict[str, Any]]:
@@ -378,8 +384,8 @@ class GitWorkspace:
         )
         return sha
 
-    async def _git(self, *args: str) -> str:
-        return await self._run("git", *args, cwd=self.repo_path)
+    async def _git(self, *args: str, max_output_chars: int = 20_000) -> str:
+        return await self._run("git", *args, cwd=self.repo_path, max_output_chars=max_output_chars)
 
     async def _run(
         self,
@@ -387,6 +393,7 @@ class GitWorkspace:
         cwd: Path,
         authenticated: bool = False,
         timeout: int = 60,
+        max_output_chars: int = 20_000,
     ) -> str:
         env = {
             "HOME": str(self.root),
@@ -416,7 +423,7 @@ class GitWorkspace:
             process.kill()
             await process.wait()
             raise DogfoodError(f"Command timed out: {' '.join(command)}") from exc
-        output = stdout.decode(errors="replace")[-20_000:]
+        output = stdout.decode(errors="replace")[-max_output_chars:]
         if process.returncode != 0:
             raise DogfoodError(f"Command failed ({' '.join(command)}):\n{output}")
         return output
