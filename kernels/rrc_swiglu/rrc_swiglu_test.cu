@@ -15,7 +15,7 @@
  * Numerical limits: eps > 0, threshold and sharpness finite; inputs should be within representable range.
  * Build: make
  * Run: ./rrc_swiglu_test [options]
- * Sample output: Illustrative until measured on real hardware.
+ * Measured output and hardware qualification are documented in README.md.
  */
 
 #include <cuda_runtime.h>

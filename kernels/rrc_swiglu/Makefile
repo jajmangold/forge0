@@ -19,7 +19,7 @@ KERNEL_SRC := rrc_swiglu_kernel.cu
 TEST_BIN := rrc_swiglu_test
 
 # Default target
-.PHONY: all clean test help
+.PHONY: all clean run-test run-bench run-bench-large help
 
 all: $(TEST_BIN)
 
@@ -29,15 +29,15 @@ $(TEST_BIN): $(TEST_SRC) $(KERNEL_SRC) rrc_swiglu.cuh
 
 # Run tests
 run-test: $(TEST_BIN)
-	./$(TEST_BIN)
+	./$(TEST_BIN) --iterations 10
 
 # Run benchmark
 run-bench: $(TEST_BIN)
-	./$(TEST_BIN) --benchmark
+	./$(TEST_BIN) --iterations 100
 
 # Run benchmark with custom settings
 run-bench-large: $(TEST_BIN)
-	./$(TEST_BIN) --benchmark --rows 1024 --max-cols 4096 --iters 100
+	./$(TEST_BIN) --num_rows 8192 --max_row_len 2048 --iterations 200
 
 # Clean build artifacts
 clean:
@@ -60,12 +60,12 @@ help:
 	@echo "  - CUDA compute capability 7.0 or newer"
 	@echo ""
 	@echo "Command-line options for $(TEST_BIN):"
-	@echo "  --rows N         Number of ragged rows (default: varies in test)"
-	@echo "  --max-cols N     Maximum columns per row (default: varies in test)"
-	@echo "  --iters N        Number of benchmark iterations (default: 10)"
-	@echo "  --warmup N       Number of warmup iterations (default: 3)"
-	@echo "  --eps E          Epsilon for RMS normalization (default: 1e-6)"
+	@echo "  --num_rows N     Number of ragged rows (default: 128)"
+	@echo "  --max_row_len N  Maximum and explicitly tested row length (default: 1024)"
+	@echo "  --iterations N   Number of benchmark iterations (default: 100)"
+	@echo "  --epsilon E      RMS epsilon (default: 1e-5)"
 	@echo "  --threshold T    Confidence threshold (default: 0.5)"
 	@echo "  --sharpness S    Confidence sharpness (default: 10.0)"
-	@echo "  --benchmark      Run benchmark mode"
-	@echo "  --test           Run correctness tests (default)"
+	@echo "  --block_size N   Threads per block; multiple of 32, 32..1024 (default: 256)"
+	@echo "  --abs_tol E      Absolute correctness tolerance (default: 1e-4)"
+	@echo "  --rel_tol E      Relative correctness tolerance (default: 1e-3)"
