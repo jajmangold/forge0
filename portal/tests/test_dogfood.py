@@ -172,7 +172,11 @@ def test_llm_json_parsing_commit_and_error_sanitization(monkeypatch, tmp_path) -
     correction = service._implementation_prompt({}, {}, "<new file>", "target does not exist")
     assert "operation=create" in correction
     assert "keys named exactly old and new" in correction
-    assert "without applying any files" in correction
+    assert "that change was not applied" in correction
+
+    targeted = service._implementation_prompt({}, {}, "<new file>", target_file="kernels/new.cu")
+    assert "exactly one change" in targeted
+    assert "kernels/new.cu" in targeted
 
 
 def test_dogfood_routes_enforce_operator_and_webhook_secrets(tmp_path) -> None:

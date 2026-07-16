@@ -536,39 +536,51 @@ class DogfoodService:
             record.plan = plan
             self.store.save(record)
 
-            file_context = self._planned_file_context(workspace.repo_path, planned_files)
             record.status = RunStatus.IMPLEMENTING
             self.store.save(record)
             implementation: dict[str, Any] = {}
             applied: list[str] = []
-            correction = ""
-            for attempt in range(3):
-                code_result = await client.chat_with_usage(
-                    messages=[
-                        {"role": "system", "content": self._coder_system_prompt()},
-                        {
-                            "role": "user",
-                            "content": self._implementation_prompt(issue, plan, file_context, correction),
-                        },
-                    ],
-                    model=self.config.coder_model,
-                    temperature=0.1,
-                    max_tokens=16_000,
-                )
-                self._add_usage(record, code_result.usage)
-                try:
-                    implementation = self._parse_json(code_result.content)
-                    changes = implementation.get("changes")
-                    if not isinstance(changes, list):
-                        raise DogfoodError("Coder response did not contain a changes list")
-                    applied = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
-                    break
-                except DogfoodError as exc:
-                    if attempt == 2:
-                        raise
-                    correction = self._safe_error(exc)
-                    record.correction_errors.append(f"implementation: {correction}")
-                    self.store.save(record)
+            for target_file in sorted(planned_files):
+                file_context = self._planned_file_context(workspace.repo_path, {target_file})
+                correction = ""
+                for attempt in range(3):
+                    code_result = await client.chat_with_usage(
+                        messages=[
+                            {"role": "system", "content": self._coder_system_prompt()},
+                            {
+                                "role": "user",
+                                "content": self._implementation_prompt(
+                                    issue,
+                                    plan,
+                                    file_context,
+                                    correction,
+                                    target_file=target_file,
+                                ),
+                            },
+                        ],
+                        model=self.config.coder_model,
+                        temperature=0.1,
+                        max_tokens=12_000,
+                    )
+                    self._add_usage(record, code_result.usage)
+                    try:
+                        file_implementation = self._parse_json(code_result.content)
+                        changes = file_implementation.get("changes")
+                        if not isinstance(changes, list) or len(changes) != 1:
+                            raise DogfoodError("Coder must return exactly one change for the target file")
+                        if not isinstance(changes[0], dict) or changes[0].get("path") != target_file:
+                            raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
+                        changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+                        applied.extend(changed)
+                        if not implementation:
+                            implementation = file_implementation
+                        break
+                    except DogfoodError as exc:
+                        if attempt == 2:
+                            raise
+                        correction = self._safe_error(exc)
+                        record.correction_errors.append(f"implementation {target_file}: {correction}")
+                        self.store.save(record)
 
             staged_files, diff_lines, diff = await workspace.stage_and_measure()
             if set(staged_files) != set(applied):
@@ -832,14 +844,18 @@ class DogfoodService:
         plan: dict[str, Any],
         files: str,
         correction: str = "",
+        *,
+        target_file: str = "",
     ) -> str:
         prompt = (
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
             f"Approved plan:\n{json.dumps(plan, indent=2)}\n\nApproved file contents:\n{files}"
         )
+        if target_file:
+            prompt += f"\n\nReturn exactly one change, for this target path only: {target_file}"
         if correction:
             prompt += (
-                "\n\nYour previous structured response was rejected without applying any files. "
+                "\n\nYour previous structured response was rejected and that change was not applied. "
                 f"Correct this validation error and return a complete replacement response: {correction}. "
                 "A file whose supplied content is <new file> must use operation=create with content. Only an existing "
                 "file may use operation=replace with keys named exactly old and new, both containing non-empty strings."
