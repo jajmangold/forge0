@@ -39,6 +39,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- reuse reproducible release images
 - isolate writable release state
 - enforce per-file target assignment
 - create planned files before integration
@@ -79,6 +80,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - document durable self-extension recovery behavior
