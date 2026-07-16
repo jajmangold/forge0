@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -511,7 +512,9 @@ class DogfoodService:
             context = self._repository_context(workspace.repo_path)
             record.status = RunStatus.PLANNING
             self.store.save(record)
-            plan_result = await client.chat_with_usage(
+            plan = await self._json_completion(
+                client,
+                record,
                 messages=[
                     {"role": "system", "content": self._planner_system_prompt()},
                     {
@@ -522,9 +525,8 @@ class DogfoodService:
                 model="planner",
                 temperature=0.1,
                 max_tokens=4000,
+                validate=self._validate_plan,
             )
-            self._add_usage(record, plan_result.usage)
-            plan = self._parse_json(plan_result.content)
             planned_files = self._validate_plan(plan)
             record.plan = plan
             self.store.save(record)
@@ -575,7 +577,9 @@ class DogfoodService:
 
             record.status = RunStatus.REVIEWING
             self.store.save(record)
-            critic_result = await client.chat_with_usage(
+            review = await self._json_completion(
+                client,
+                record,
                 messages=[
                     {"role": "system", "content": self._critic_system_prompt()},
                     {
@@ -590,8 +594,6 @@ class DogfoodService:
                 temperature=0.0,
                 max_tokens=2000,
             )
-            self._add_usage(record, critic_result.usage)
-            review = self._parse_json(critic_result.content)
             record.critic_feedback = str(review.get("feedback", ""))[:4000]
             if review.get("pass") is not True:
                 raise DogfoodError(f"Critic rejected the change: {record.critic_feedback}")
@@ -684,6 +686,44 @@ class DogfoodService:
         if record.usage.get("total_tokens", 0) > self.config.token_budget:
             raise DogfoodError("Run exceeded its LLM token budget")
         self.store.save(record)
+
+    async def _json_completion(
+        self,
+        client: LLMClient,
+        record: RunRecord,
+        *,
+        messages: list[dict[str, str]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        validate: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> dict[str, Any]:
+        """Request structured output with bounded schema correction attempts."""
+        correction = ""
+        for attempt in range(3):
+            attempt_messages = [dict(message) for message in messages]
+            if correction:
+                attempt_messages[-1]["content"] += (
+                    "\n\nYour previous response was rejected without taking any action. "
+                    f"Correct this error and return one complete valid JSON object only: {correction}"
+                )
+            result = await client.chat_with_usage(
+                messages=attempt_messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            self._add_usage(record, result.usage)
+            try:
+                parsed = self._parse_json(result.content)
+                if validate is not None:
+                    validate(parsed)
+                return parsed
+            except DogfoodError as exc:
+                if attempt == 2:
+                    raise
+                correction = self._safe_error(exc)
+        raise DogfoodError("Structured response correction was exhausted")
 
     async def _comment(self, record: RunRecord, body: str) -> None:
         await gitea.add_issue_comment(record.owner, record.repo, record.issue_number, body)

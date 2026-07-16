@@ -18,6 +18,7 @@ from app.dogfood import (
     RunStatus,
     RunStore,
 )
+from app.llm_client import ChatResult
 from fastapi.testclient import TestClient
 
 
@@ -228,3 +229,30 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
 
     assert loaded.full_name == "agent/forge0"
     assert "portal/" in loaded.allowed_paths
+
+
+@pytest.mark.asyncio
+async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    record = RunRecord(id="json-run", owner="agent", repo="forge0", issue_number=10, issue_title="JSON")
+    client = AsyncMock()
+    client.chat_with_usage.side_effect = [
+        ChatResult(content="not json", usage={"total_tokens": 4}),
+        ChatResult(content='{"files": ["README.md"]}', usage={"total_tokens": 5}),
+    ]
+
+    result = await service._json_completion(
+        client,
+        record,
+        messages=[{"role": "user", "content": "plan"}],
+        model="planner",
+        temperature=0.1,
+        max_tokens=100,
+        validate=service._validate_plan,
+    )
+
+    assert result == {"files": ["README.md"]}
+    assert client.chat_with_usage.await_count == 2
+    assert record.usage["total_tokens"] == 9
+    correction = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
+    assert "valid JSON object only" in correction
