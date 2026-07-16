@@ -77,6 +77,14 @@ byte-compilation, then asks a separate critic to approve the diff. The final
 authority boundary is intentional: Forge0 pushes an `agent/` branch and opens
 a draft PR, but it never merges or deploys its own work.
 
+Queued runs are persisted to disk so the supervisor can resume them after a
+portal restart. If an interruption occurs before publication (for example,
+during planning or implementation), the run restarts from a clean workspace
+under the same run ID. Interruptions that happen during the publication phase
+fail closed: the run is marked for operator review and no partial work is
+merged. The `FORGE0_MAX_CONCURRENT_RUNS` environment variable controls how
+many runs execute in parallel (default `1`).
+
 The default per-file ceiling is 128 KiB so Forge0 can modify its current
 self-extension engine; the independent five-file and 500-line diff limits still
 bound every run.
