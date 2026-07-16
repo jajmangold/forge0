@@ -1,0 +1,21 @@
+{% if experiments %}
+<div class="table-scroll">
+  <table>
+    <thead><tr><th>Status</th><th>Harness</th><th>Resource</th><th>Elapsed</th><th>Frontier</th><th>Created</th></tr></thead>
+    <tbody>
+    {% for experiment in experiments %}
+      <tr>
+        <td><span class="status-cell"><span class="status-dot {% if experiment.status == 'succeeded' %}ok{% elif experiment.status == 'failed' %}err{% else %}{{ experiment.status }}{% endif %}"></span>{{ experiment.status }}</span></td>
+        <td><strong>{{ experiment.manifest.harness }}</strong><div class="run-meta"><code>{{ experiment.id }}</code></div>{% if experiment.error %}<div class="error-text">{{ experiment.error[:240] }}</div>{% endif %}</td>
+        <td>{{ experiment.resource }}</td>
+        <td>{% if experiment.result and experiment.result.elapsed_seconds is defined %}{{ experiment.result.elapsed_seconds }}s{% else %}—{% endif %}</td>
+        <td>{% if experiment.result and experiment.result.frontier is defined %}{{ experiment.result.frontier|length }}{% else %}—{% endif %}</td>
+        <td>{{ experiment.created_at|time_ago }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">No experiments yet. Start with a small static harness.</div>
+{% endif %}

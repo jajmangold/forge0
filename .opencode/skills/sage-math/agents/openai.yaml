@@ -1,0 +1,4 @@
+interface:
+  display_name: "SageMath Sandbox"
+  short_description: "Run bounded exact mathematics checks"
+  default_prompt: "Use the static SageMath sandbox for this exact mathematics check."

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Research lab · Forge0{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow">Bounded discovery</div>
+    <h1>Research lab</h1>
+    <p>Run measured searches through fixed harnesses. Correctness is a constraint; latency, quality, cost, and resource tradeoffs stay visible on the frontier.</p>
+  </div>
+  <div class="page-actions"><a class="btn" href="{{ gitea_link('agent/forge0/wiki') }}">Research wiki ↗</a></div>
+</div>
+
+<div class="lab-grid">
+  <section class="lab-card">
+    <div><span class="badge">V100 · seconds</span><h2>Optuna launch search</h2><p>Compile once, measure six CUDA launch geometries twice, and retain the latency/error/thread frontier.</p></div>
+    <button class="btn btn-primary" type="button" onclick="queueExperiment('optuna', this)">Run bounded search</button>
+  </section>
+  <section class="lab-card">
+    <div><span class="badge">V100 · minutes</span><h2>OpenEvolve reduction</h2><p>Two non-pro MiMo mutations, one marked CUDA function, at most 60 changed lines, with compile and correctness gates.</p></div>
+    <button class="btn" type="button" onclick="queueExperiment('openevolve', this)">Run tiny evolution</button>
+  </section>
+  <section class="lab-card">
+    <div><span class="badge">Networkless · exact</span><h2>SageMath check</h2><p>Evaluate a symbolic expression in the pinned sandbox. Imports, files, network, and subprocesses are rejected.</p></div>
+    <label class="field"><span>Expression</span><input id="sageExpression" value="factor(x^4 - 1)" maxlength="4000"></label>
+    <button class="btn" type="button" onclick="queueExperiment('sage', this)">Check expression</button>
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel-header"><div><h2>Deep research</h2><div class="panel-subtitle">SearXNG evidence · non-pro MiMo synthesis · seven-day wiki cache</div></div></div>
+  <form class="lab-form" id="researchForm">
+    <label class="field"><span>Research question</span><input name="topic" required minlength="3" maxlength="500" placeholder="What should the agents verify?"></label>
+    <label class="field"><span>Project context</span><textarea name="context" maxlength="4000" rows="3" placeholder="Why this matters and what decision it should support"></textarea></label>
+    <div class="lab-form-actions"><button class="btn btn-primary" type="submit">Research and cache</button><span id="researchStatus" class="panel-subtitle" role="status"></span></div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-header"><div><h2>Experiment queue</h2><div class="panel-subtitle">Durable leases and Pareto results · refreshes every 3 seconds</div></div><span class="badge">{{ experiments|length }}</span></div>
+  <div id="experimentList" data-refresh-url="/partials/experiments" data-refresh-interval="3000">{% include "_experiments.html" %}</div>
+</section>
+
+<script>
+  const manifests = {
+    optuna: {method: 'optuna', harness: 'rrc-swiglu-launch', seed: 42, budget: {trials: 6, wall_seconds: 300, repetitions: 2}, parameters: {block_sizes: [32, 64, 128, 256, 512, 1024], num_rows: 128, max_row_len: 2048, iterations: 100}},
+    openevolve: {method: 'openevolve', harness: 'rrc-swiglu-evolve', seed: 42, budget: {trials: 2, wall_seconds: 300, repetitions: 1, max_changed_lines: 60, llm_tokens: 6000}, parameters: {target: 'cross_warp_reduction', iterations: 2}},
+    sage: {method: 'sage', harness: 'sage-expression', seed: 42, budget: {trials: 1, wall_seconds: 30}, parameters: {expression: ''}}
+  };
+  async function queueExperiment(kind, button) {
+    const manifest = structuredClone(manifests[kind]);
+    if (kind === 'sage') manifest.parameters.expression = document.getElementById('sageExpression').value;
+    const label = button.textContent; button.disabled = true; button.textContent = 'Queueing…';
+    try {
+      const response = await fetch('/api/experiments', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(manifest)});
+      if (!response.ok) throw new Error((await response.json()).detail || `HTTP ${response.status}`);
+      button.textContent = 'Queued'; setTimeout(() => { button.textContent = label; button.disabled = false; }, 1500);
+    } catch (error) { button.textContent = String(error.message); setTimeout(() => { button.textContent = label; button.disabled = false; }, 3000); }
+  }
+  document.getElementById('researchForm').addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.currentTarget; const status = document.getElementById('researchStatus');
+    const button = form.querySelector('button'); button.disabled = true; status.textContent = 'Searching and synthesizing…';
+    try {
+      const values = new FormData(form); const response = await fetch('/api/research', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({topic: values.get('topic'), context: values.get('context'), max_queries: 3, max_sources: 10, publish_wiki: true})});
+      const result = await response.json(); if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+      status.textContent = `${result.cache_hit ? 'Cache hit' : 'Published'} · ${result.metrics.selected_sources} sources · ${result.metrics.elapsed_seconds}s`;
+    } catch (error) { status.textContent = String(error.message); } finally { button.disabled = false; }
+  });
+</script>
+{% endblock %}

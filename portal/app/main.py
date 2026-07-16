@@ -20,6 +20,8 @@ from markupsafe import Markup
 from . import auth, gitea
 from .chat import router as chat_router
 from .dogfood import DogfoodError, DogfoodService
+from .experiment_queue import ExperimentQueue, ExperimentSubmission
+from .research import ResearchRequest, ResearchService
 
 
 @asynccontextmanager
@@ -43,6 +45,8 @@ app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 
 GITEA_INTERNAL = os.getenv("GITEA_URL", "http://gitea:3000")
 _dogfood_service: DogfoodService | None = None
+_experiment_queue: ExperimentQueue | None = None
+_research_service: ResearchService | None = None
 
 # Include chat router
 app.include_router(chat_router)
@@ -148,6 +152,22 @@ def get_dogfood_service() -> DogfoodService:
     if _dogfood_service is None:
         _dogfood_service = DogfoodService()
     return _dogfood_service
+
+
+def get_experiment_queue() -> ExperimentQueue:
+    """Lazily open the shared durable experiment queue."""
+    global _experiment_queue
+    if _experiment_queue is None:
+        _experiment_queue = ExperimentQueue()
+    return _experiment_queue
+
+
+def get_research_service() -> ResearchService:
+    """Lazily open the durable research cache."""
+    global _research_service
+    if _research_service is None:
+        _research_service = ResearchService()
+    return _research_service
 
 
 def _time_ago(dt_str: str) -> str:
@@ -507,6 +527,51 @@ async def gitea_webhook(
     except (DogfoodError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "queued", "run_id": record.id}
+
+
+# ── bounded experiments and research ────────────────────────────────────
+
+@app.get("/lab", response_class=HTMLResponse)
+async def lab_page(request: Request):
+    return templates.TemplateResponse(request, "lab.html", {
+        "experiments": get_experiment_queue().list(),
+        "page": "lab",
+    })
+
+
+@app.get("/partials/experiments", response_class=HTMLResponse)
+async def experiments_partial(request: Request):
+    return templates.TemplateResponse(request, "_experiments.html", {
+        "experiments": get_experiment_queue().list(),
+    })
+
+
+@app.post("/api/experiments", status_code=202)
+async def enqueue_experiment(submission: ExperimentSubmission) -> dict:
+    """Queue a validated static harness; manifests can never supply commands."""
+    return get_experiment_queue().enqueue(submission).to_dict()
+
+
+@app.get("/api/experiments")
+async def list_experiments(limit: int = 50) -> list[dict]:
+    return [record.to_dict() for record in get_experiment_queue().list(limit)]
+
+
+@app.get("/api/experiments/{job_id}")
+async def get_experiment(job_id: str) -> dict:
+    record = get_experiment_queue().get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return record.to_dict()
+
+
+@app.post("/api/research")
+async def run_research(request: ResearchRequest) -> dict:
+    """Run or reuse a bounded evidence review and optionally publish its wiki page."""
+    try:
+        return await get_research_service().run(request)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Research source or Gitea request failed") from exc
 
 
 # ── HTMX partial endpoints (for auto-refresh) ───────────────────────────
