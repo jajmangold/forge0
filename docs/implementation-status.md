@@ -67,6 +67,12 @@ as deployed on canonical main.
   findings, also restricted to the original planned paths.
 - **Structured critic findings.** Bounded, staged-path-validated findings are
   persisted alongside normalized critic feedback and supplied to repair.
+- **Evidence-grounded criticism.** A plan may select at most three existing
+  read-only repository files, disjoint from changed files; selected evidence
+  context is capped at 60,000 characters and supplied to both initial and
+  post-repair criticism. Issue text and plans are requirements, not evidence.
+  An unsupported behavioral claim is a blocking high-severity finding with
+  `pass=false`.
 
 Every repair—verification or critic—must remeasure the diff, rerun the fixed
 verification, and pass read-only criticism before publication.
