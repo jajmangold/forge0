@@ -167,6 +167,10 @@ def test_llm_json_parsing_commit_and_error_sanitization(monkeypatch, tmp_path) -
     monkeypatch.setenv("GITEA_TOKEN", "sensitive")
     assert service._safe_error(RuntimeError("failed sensitive value")) == "failed [redacted] value"
 
+    correction = service._implementation_prompt({}, {}, "<new file>", "target does not exist")
+    assert "operation=create" in correction
+    assert "without applying any files" in correction
+
 
 def test_dogfood_routes_enforce_operator_and_webhook_secrets(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))

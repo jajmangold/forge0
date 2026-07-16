@@ -535,7 +535,7 @@ class DogfoodService:
             implementation: dict[str, Any] = {}
             applied: list[str] = []
             correction = ""
-            for attempt in range(2):
+            for attempt in range(3):
                 code_result = await client.chat_with_usage(
                     messages=[
                         {"role": "system", "content": self._coder_system_prompt()},
@@ -557,7 +557,7 @@ class DogfoodService:
                     applied = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
                     break
                 except DogfoodError as exc:
-                    if attempt == 1:
+                    if attempt == 2:
                         raise
                     correction = self._safe_error(exc)
 
@@ -786,7 +786,9 @@ class DogfoodService:
         if correction:
             prompt += (
                 "\n\nYour previous structured response was rejected without applying any files. "
-                f"Correct this validation error and return a complete replacement response: {correction}"
+                f"Correct this validation error and return a complete replacement response: {correction}. "
+                "A file whose supplied content is <new file> must use operation=create with content. Only an existing "
+                "file may use operation=replace with exact old and non-empty new blocks."
             )
         return prompt
 
