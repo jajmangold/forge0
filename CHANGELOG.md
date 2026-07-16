@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- supervise durable queued runs
 - ground critic reviews in evidence spans
 - add shared contract ledger
 - make sign-in failures recoverable
@@ -76,6 +77,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
