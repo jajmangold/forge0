@@ -10,6 +10,9 @@ documents are not automatically implemented features.
   checks, API bootstrap, and a portal reverse proxy.
 - FastAPI/HTMX portal with repository inventory, repository details, recent
   commits, issues, pull requests, and Gitea Actions run summaries.
+- Gitea OAuth/OIDC portal login with authorization-code PKCE, signed and
+  expiring HttpOnly sessions, an operator allowlist, and shared browser identity
+  across the portal and proxied Gitea UI.
 - Project chat that assembles bounded repository context and calls an
   OpenAI-compatible LLM endpoint. Input/history are validated and chat output
   is rendered as untrusted text.
@@ -20,6 +23,9 @@ documents are not automatically implemented features.
 - OpenCode configuration with role permissions, MCP definitions, LSPs, and 17
   reusable skills.
 - Gitea governance templates and validation/maintenance workflows.
+- A dedicated Gitea Actions runner backed by the versioned
+  `forge0-ci-base:py312-20260716` image. Setup builds that image once, registers
+  the runner, and prevents job containers from receiving the Docker socket.
 - Bounded self-extension from an explicitly labeled issue to a verified draft
   PR: persistent run records, signed webhooks, disposable clones, structured
   edits, path/diff/token limits, quality gates, critic review, and run UI.
@@ -38,12 +44,9 @@ documents are not automatically implemented features.
 - Cross-session semantic memory or tree-sitter repository maps.
 - Automatic merging or deployment of agent-authored changes. Self-extension
   intentionally stops at a human-reviewed draft pull request.
-- A dedicated Gitea Actions runner backed by the versioned
-  `forge0-ci-base:py312-20260716` image. Setup builds that image once, registers
-  the runner, and prevents job containers from receiving the Docker socket.
-- Production authentication, TLS termination, multi-user authorization, and a
-  production database. The current deployment is a localhost, single-operator
-  development system.
+- TLS termination, multi-user roles/authorization, account lifecycle tooling,
+  and a production database. The current deployment is a localhost,
+  allowlisted-operator development system.
 
 ## Recursive dogfood boundaries
 

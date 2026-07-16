@@ -29,6 +29,15 @@
         <kbd>Ctrl K</kbd>
       </button>
       <div class="header-right">
+        {% if request.state.user %}
+        <span class="user-chip" title="Signed in through Gitea">
+          <span class="user-avatar" aria-hidden="true">{{ request.state.user.login[:1] | upper }}</span>
+          <span>{{ request.state.user.login }}</span>
+        </span>
+        <form action="/auth/logout" method="post">
+          <button class="header-link header-button" type="submit">Sign out</button>
+        </form>
+        {% endif %}
         <a class="header-link" href="{{ gitea_link() }}" title="Open Gitea">Gitea ↗</a>
         <button class="icon-button theme-toggle" type="button" aria-label="Toggle color theme"
                 onclick="toggleTheme()"><span id="themeIcon" aria-hidden="true">☾</span></button>

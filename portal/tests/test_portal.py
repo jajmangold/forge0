@@ -1,19 +1,29 @@
 """Portal route and safety regression tests."""
 
 import subprocess
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
-from app import gitea
+from app import auth, gitea
 from app.coordination import AgentCoordinator, AgentLock, AgentRole, TaskStatus
 from app.main import app
 from app.rollback import RollbackManager, SafeCodeChanger
 from app.stuck_detection import Action, CostTracker, StuckDetector
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
+
+
+def configure_oauth(monkeypatch) -> None:
+    monkeypatch.setenv("GITEA_OAUTH_CLIENT_ID", "portal-client")
+    monkeypatch.setenv("GITEA_OAUTH_CLIENT_SECRET", "portal-secret")
+    monkeypatch.setenv("FORGE0_SESSION_SECRET", "test-session-secret")
+    monkeypatch.setenv("FORGE0_ALLOWED_USERS", "josh")
 
 
 def test_healthcheck() -> None:
@@ -21,6 +31,100 @@ def test_healthcheck() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_oauth_protects_pages_and_apis(monkeypatch) -> None:
+    configure_oauth(monkeypatch)
+
+    page = client.get("/actions?status=failed", follow_redirects=False)
+    api = client.post("/api/chat/owner/repo", json={"query": "hello"})
+
+    assert page.status_code == 302
+    assert page.headers["location"] == "/auth/login?next=%2Factions%3Fstatus%3Dfailed"
+    assert api.status_code == 401
+    assert api.json() == {"detail": "Authentication required"}
+
+
+def test_oauth_login_uses_pkce_and_signed_state(monkeypatch) -> None:
+    configure_oauth(monkeypatch)
+
+    response = client.get("/auth/login?next=/dogfood", follow_redirects=False)
+    query = parse_qs(urlsplit(response.headers["location"]).query)
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith(
+        "http://localhost:3001/gitea/login/oauth/authorize?"
+    )
+    assert query["client_id"] == ["portal-client"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["scope"] == ["openid profile email"]
+    assert auth.STATE_COOKIE in response.cookies
+    saved = auth.unsign(response.cookies[auth.STATE_COOKIE], "test-session-secret", auth.STATE_MAX_AGE)
+    assert saved is not None
+    assert saved["next"] == "/dogfood"
+    assert saved["nonce"] == query["state"][0]
+
+
+def test_oauth_callback_creates_session_for_allowed_gitea_user(monkeypatch) -> None:
+    configure_oauth(monkeypatch)
+    oauth_client = TestClient(app)
+    login = oauth_client.get("/auth/login?next=/actions", follow_redirects=False)
+    state = parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
+
+    with patch(
+        "app.main.auth.exchange_code",
+        new=AsyncMock(return_value={"preferred_username": "josh", "email": "jajmangold@gmail.com"}),
+    ):
+        response = oauth_client.get(
+            f"/auth/callback?code=valid-code&state={state}", follow_redirects=False
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/actions"
+    session = auth.unsign(
+        response.cookies[auth.SESSION_COOKIE], "test-session-secret", auth.SESSION_MAX_AGE
+    )
+    assert session is not None
+    assert session["login"] == "josh"
+    assert "valid-code" not in response.headers["set-cookie"]
+
+
+def test_oauth_rejects_tampered_state_and_unapproved_users(monkeypatch) -> None:
+    configure_oauth(monkeypatch)
+    oauth_client = TestClient(app)
+    login = oauth_client.get("/auth/login", follow_redirects=False)
+    state = parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
+
+    tampered = oauth_client.get(
+        f"/auth/callback?code=code&state={state}x", follow_redirects=False
+    )
+    assert tampered.status_code == 400
+
+    config = auth.AuthConfig.from_env()
+    assert config is not None
+    with pytest.raises(HTTPException) as rejected:
+        auth.normalize_identity({"preferred_username": "agent"}, config)
+    assert rejected.value.status_code == 403
+
+
+def test_signed_session_expires_and_detects_tampering() -> None:
+    expired = auth.sign({"login": "josh", "iat": int(time.time()) - auth.SESSION_MAX_AGE - 1}, "secret")
+    valid = auth.sign({"login": "josh", "iat": int(time.time())}, "secret")
+
+    assert auth.unsign(expired, "secret", auth.SESSION_MAX_AGE) is None
+    assert auth.unsign(f"{valid}x", "secret", auth.SESSION_MAX_AGE) is None
+    assert auth.unsign("not-base64.unsigned", "secret", auth.SESSION_MAX_AGE) is None
+
+
+def test_empty_allowlist_denies_every_account(monkeypatch) -> None:
+    configure_oauth(monkeypatch)
+    monkeypatch.setenv("FORGE0_ALLOWED_USERS", "")
+    config = auth.AuthConfig.from_env()
+
+    assert config is not None
+    with pytest.raises(HTTPException) as rejected:
+        auth.normalize_identity({"preferred_username": "josh"}, config)
+    assert rejected.value.status_code == 403
 
 
 def test_auto_login_can_be_disabled(monkeypatch) -> None:

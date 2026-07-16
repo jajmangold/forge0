@@ -85,9 +85,15 @@ fi
 
 EXISTING_OPERATOR_TOKEN=""
 EXISTING_WEBHOOK_SECRET=""
+EXISTING_OAUTH_CLIENT_ID=""
+EXISTING_OAUTH_CLIENT_SECRET=""
+EXISTING_SESSION_SECRET=""
 if [ -f .env.generated ]; then
   EXISTING_OPERATOR_TOKEN=$(sed -n 's/^FORGE0_OPERATOR_TOKEN=//p' .env.generated)
   EXISTING_WEBHOOK_SECRET=$(sed -n 's/^FORGE0_WEBHOOK_SECRET=//p' .env.generated)
+  EXISTING_OAUTH_CLIENT_ID=$(sed -n 's/^GITEA_OAUTH_CLIENT_ID=//p' .env.generated)
+  EXISTING_OAUTH_CLIENT_SECRET=$(sed -n 's/^GITEA_OAUTH_CLIENT_SECRET=//p' .env.generated)
+  EXISTING_SESSION_SECRET=$(sed -n 's/^FORGE0_SESSION_SECRET=//p' .env.generated)
 fi
 OPERATOR_TOKEN="${FORGE0_OPERATOR_TOKEN:-${EXISTING_OPERATOR_TOKEN}}"
 WEBHOOK_SECRET="${FORGE0_WEBHOOK_SECRET:-${EXISTING_WEBHOOK_SECRET}}"
@@ -98,6 +104,62 @@ if [ -z "$WEBHOOK_SECRET" ]; then
   WEBHOOK_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
 fi
 
+OAUTH_REDIRECT_URI="${FORGE0_OAUTH_REDIRECT_URI:-http://localhost:3001/auth/callback}"
+OAUTH_CLIENT_ID="${GITEA_OAUTH_CLIENT_ID:-${EXISTING_OAUTH_CLIENT_ID}}"
+OAUTH_CLIENT_SECRET="${GITEA_OAUTH_CLIENT_SECRET:-${EXISTING_OAUTH_CLIENT_SECRET}}"
+SESSION_SECRET="${FORGE0_SESSION_SECRET:-${EXISTING_SESSION_SECRET}}"
+if [ -z "$SESSION_SECRET" ]; then
+  SESSION_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+fi
+
+echo "==> Configuring Gitea OAuth for the portal..."
+OAUTH_APPS=$(curl -fsS -H "Authorization: token ${TOKEN}" \
+  "http://localhost:3000/api/v1/user/applications/oauth2?limit=100")
+OAUTH_APP_ID=$(printf '%s' "$OAUTH_APPS" | python3 -c '
+import json
+import sys
+
+for application in json.load(sys.stdin):
+    if application.get("name") == "Forge0 Portal":
+        print(application["id"])
+        break
+' || true)
+OAUTH_APP_REDIRECT=$(printf '%s' "$OAUTH_APPS" | python3 -c '
+import json
+import sys
+
+for application in json.load(sys.stdin):
+    if application.get("name") == "Forge0 Portal":
+        print(application.get("redirect_uris", [""])[0])
+        break
+' || true)
+if [ -z "$OAUTH_CLIENT_ID" ] || [ -z "$OAUTH_CLIENT_SECRET" ] \
+  || [ -z "$OAUTH_APP_ID" ] || [ "$OAUTH_APP_REDIRECT" != "$OAUTH_REDIRECT_URI" ]; then
+  export OAUTH_REDIRECT_URI
+  OAUTH_PAYLOAD=$(python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "name": "Forge0 Portal",
+    "redirect_uris": [os.environ["OAUTH_REDIRECT_URI"]],
+    "confidential_client": True,
+    "skip_secondary_authorization": True,
+}))
+')
+  if [ -n "$OAUTH_APP_ID" ]; then
+    OAUTH_APP=$(curl -fsS -X PATCH -H "Authorization: token ${TOKEN}" \
+      -H "Content-Type: application/json" -d "$OAUTH_PAYLOAD" \
+      "http://localhost:3000/api/v1/user/applications/oauth2/${OAUTH_APP_ID}")
+  else
+    OAUTH_APP=$(curl -fsS -X POST -H "Authorization: token ${TOKEN}" \
+      -H "Content-Type: application/json" -d "$OAUTH_PAYLOAD" \
+      "http://localhost:3000/api/v1/user/applications/oauth2")
+  fi
+  OAUTH_CLIENT_ID=$(printf '%s' "$OAUTH_APP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["client_id"])')
+  OAUTH_CLIENT_SECRET=$(printf '%s' "$OAUTH_APP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["client_secret"])')
+fi
+
 # Write .env for other services to consume
 cat > .env.generated <<EOF
 GITEA_URL=http://localhost:3000
@@ -106,6 +168,11 @@ GITEA_ADMIN_PASS=${ADMIN_PASS}
 GITEA_API_TOKEN=${TOKEN}
 FORGE0_OPERATOR_TOKEN=${OPERATOR_TOKEN}
 FORGE0_WEBHOOK_SECRET=${WEBHOOK_SECRET}
+GITEA_OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}
+GITEA_OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET}
+FORGE0_SESSION_SECRET=${SESSION_SECRET}
+FORGE0_OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI}
+FORGE0_ALLOWED_USERS=${FORGE0_ALLOWED_USERS:-josh}
 EOF
 chmod 600 .env.generated
 
@@ -115,6 +182,9 @@ chmod 600 .env.generated
 export GITEA_API_TOKEN="$TOKEN"
 export FORGE0_OPERATOR_TOKEN="$OPERATOR_TOKEN"
 export FORGE0_WEBHOOK_SECRET="$WEBHOOK_SECRET"
+export GITEA_OAUTH_CLIENT_ID="$OAUTH_CLIENT_ID"
+export GITEA_OAUTH_CLIENT_SECRET="$OAUTH_CLIENT_SECRET"
+export FORGE0_SESSION_SECRET="$SESSION_SECRET"
 
 CI_IMAGE="forge0-ci-base:py312-20260716"
 RUNNER_IMAGE="docker.io/gitea/act_runner:0.2.13@sha256:8477d5b61b655caad4449888bae39f1f34bebd27db56cb15a62dccb3dcf3a944"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 from datetime import UTC, datetime
@@ -10,12 +11,12 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
-from . import gitea
+from . import auth, gitea
 from .chat import router as chat_router
 from .dogfood import DogfoodError, DogfoodService
 
@@ -31,6 +32,78 @@ _dogfood_service: DogfoodService | None = None
 
 # Include chat router
 app.include_router(chat_router)
+
+
+@app.middleware("http")
+async def require_gitea_identity(request: Request, call_next):
+    """Protect interactive portal routes when OAuth has been provisioned."""
+    config = auth.AuthConfig.from_env()
+    request.state.user = auth.current_user(request, config) if config else None
+    if config and request.state.user is None:
+        path = request.url.path
+        public = (
+            path in {"/healthz", "/readyz", "/gitea", "/gitea-login"}
+            or path.startswith(("/static/", "/auth/", "/gitea/"))
+            or path == "/api/webhooks/gitea"
+            or (path.startswith("/api/dogfood/run/") and request.method == "POST")
+        )
+        if not public:
+            if path.startswith("/api/"):
+                return JSONResponse({"detail": "Authentication required"}, status_code=401)
+            destination = auth.safe_next(f"{path}?{request.url.query}" if request.url.query else path)
+            return RedirectResponse(f"/auth/login?{urlencode({'next': destination})}", status_code=302)
+    return await call_next(request)
+
+
+@app.get("/auth/login", include_in_schema=False)
+async def auth_login(next: str = "/"):
+    config = auth.AuthConfig.from_env()
+    if config is None:
+        raise HTTPException(status_code=503, detail="Gitea OAuth is not configured")
+    url, state_cookie = auth.authorization(config, auth.safe_next(next))
+    response = RedirectResponse(url, status_code=302)
+    response.set_cookie(
+        auth.STATE_COOKIE,
+        state_cookie,
+        max_age=auth.STATE_MAX_AGE,
+        httponly=True,
+        secure=config.secure_cookies,
+        samesite="lax",
+        path="/auth/callback",
+    )
+    return response
+
+
+@app.get("/auth/callback", include_in_schema=False)
+async def auth_callback(request: Request, code: str = "", state: str = ""):
+    config = auth.AuthConfig.from_env()
+    if config is None:
+        raise HTTPException(status_code=503, detail="Gitea OAuth is not configured")
+    saved = auth.unsign(request.cookies.get(auth.STATE_COOKIE, ""), config.session_secret, auth.STATE_MAX_AGE)
+    if not code or not state or not saved or not hmac.compare_digest(state, str(saved.get("nonce", ""))):
+        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+    identity = auth.normalize_identity(
+        await auth.exchange_code(config, code, str(saved.get("verifier", ""))), config
+    )
+    response = RedirectResponse(auth.safe_next(str(saved.get("next", "/"))), status_code=302)
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        auth.sign(identity, config.session_secret),
+        max_age=auth.SESSION_MAX_AGE,
+        httponly=True,
+        secure=config.secure_cookies,
+        samesite="lax",
+        path="/",
+    )
+    response.delete_cookie(auth.STATE_COOKIE, path="/auth/callback")
+    return response
+
+
+@app.post("/auth/logout", include_in_schema=False)
+async def auth_logout():
+    response = RedirectResponse("/auth/login", status_code=303)
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return response
 
 
 def get_dogfood_service() -> DogfoodService:
@@ -166,6 +239,15 @@ async def gitea_auto_login(request: Request, next: str = "/gitea/"):
         and not any(character in next for character in ("\r", "\n", "\0"))
     )
     destination = next if safe_destination else "/gitea/"
+    oauth_config = auth.AuthConfig.from_env()
+    if oauth_config is not None:
+        if request.state.user is None:
+            return RedirectResponse(
+                url=f"/auth/login?{urlencode({'next': destination})}", status_code=302
+            )
+        return RedirectResponse(
+            url=gitea.public_url(destination.removeprefix("/gitea/")), status_code=302
+        )
     if os.getenv("GITEA_AUTO_LOGIN", "true").lower() != "true":
         query = urlencode({"redirect_to": destination})
         return RedirectResponse(
