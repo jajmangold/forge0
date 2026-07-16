@@ -21,11 +21,12 @@ import httpx
 
 from . import gitea
 from .critic_findings import extract_acceptance_criteria, validate_critic_response
+from .dogfood_planning import (
+    DogfoodError,
+    render_shared_contract_ledger,
+    validate_shared_contracts,
+)
 from .llm_client import ChatResult, LLMClient, LLMConfig
-
-
-class DogfoodError(RuntimeError):
-    """A self-extension run violated a safety boundary or could not proceed."""
 
 
 class RunStatus(StrEnum):
@@ -1304,29 +1305,7 @@ class DogfoodService:
 
     @staticmethod
     def _validate_shared_contracts(plan: dict[str, Any]) -> list[str]:
-        if "shared_contracts" not in plan:
-            return []
-        raw_contracts = plan.get("shared_contracts", [])
-        if not isinstance(raw_contracts, list):
-            raise DogfoodError("Planner shared_contracts must be an array")
-        if len(raw_contracts) > 12:
-            raise DogfoodError("Planner shared_contracts must contain at most 12 entries")
-        contracts: list[str] = []
-        seen: set[str] = set()
-        for raw_contract in raw_contracts:
-            if not isinstance(raw_contract, str):
-                raise DogfoodError("Planner shared_contracts entries must be strings")
-            contract = raw_contract.strip()
-            if not contract:
-                raise DogfoodError("Planner shared_contracts entries must be non-empty")
-            if len(contract) > 200:
-                raise DogfoodError("Planner shared_contracts entries must be at most 200 characters")
-            if contract in seen:
-                raise DogfoodError("Planner shared_contracts must not contain duplicates")
-            seen.add(contract)
-            contracts.append(contract)
-        plan["shared_contracts"] = contracts
-        return contracts
+        return validate_shared_contracts(plan)
 
     def _validate_evidence_files(self, plan: dict[str, Any], root: Path) -> set[str]:
         raw_files = plan.get("evidence_files", [])
@@ -1785,11 +1764,7 @@ class DogfoodService:
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
             f"Approved plan:\n{json.dumps(plan, indent=2)}\n\nApproved file contents:\n{files}"
         )
-        shared_contracts = plan.get("shared_contracts", [])
-        if shared_contracts:
-            prompt += "\n\nShared contract ledger:\n" + "\n".join(f"- {contract}" for contract in shared_contracts)
-        else:
-            prompt += "\n\nShared contract ledger:\n(no shared contracts)"
+        prompt += "\n\n" + render_shared_contract_ledger(plan)
         if target_file:
             prompt += f"\n\nReturn exactly one change, for this target path only: {target_file}"
         if contract_context:
