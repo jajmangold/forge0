@@ -20,6 +20,7 @@ class ChatResult:
     usage: dict[str, int] = field(default_factory=dict)
     model: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
+    finish_reason: str = "stop"
 
 
 @dataclass
@@ -141,18 +142,22 @@ class LLMClient:
 
         try:
             data = response.json()
-            message = data["choices"][0]["message"]
+            choice = data["choices"][0]
+            message = choice["message"]
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMResponseError("The LLM service returned an invalid response") from exc
         # MiMo models may return content in 'reasoning_content' when max_tokens is too low
-        choice = message.get("content") or message.get("reasoning_content", "")
-        if not isinstance(choice, str):
+        content = message.get("content") or message.get("reasoning_content", "")
+        if not isinstance(content, str):
             raise LLMResponseError("The LLM service returned non-text content")
         usage = data.get("usage", {})
+        raw_finish_reason = choice.get("finish_reason", "stop")
+        finish_reason = raw_finish_reason if isinstance(raw_finish_reason, str) else "stop"
 
         return ChatResult(
-            content=choice,
+            content=content,
             usage=usage,
             model=resolved_model,
             raw=data,
+            finish_reason=finish_reason,
         )

@@ -314,6 +314,98 @@ async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_structured_completion_retries_truncated_response(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    record = RunRecord(id="trunc-run", owner="agent", repo="forge0", issue_number=11, issue_title="Truncated")
+    client = AsyncMock()
+    client.chat_with_usage.side_effect = [
+        ChatResult(content='{"files": ["README.md', usage={"total_tokens": 100}, finish_reason="length"),
+        ChatResult(content='{"files": ["README.md"]}', usage={"total_tokens": 50}, finish_reason="stop"),
+    ]
+
+    result = await service._json_completion(
+        client,
+        record,
+        messages=[{"role": "user", "content": "plan"}],
+        model="planner",
+        temperature=0.1,
+        max_tokens=100,
+        validate=service._validate_plan,
+    )
+
+    assert result == {"files": ["README.md"]}
+    assert client.chat_with_usage.await_count == 2
+    assert record.usage["total_tokens"] == 150
+    assert len(record.correction_errors) == 1
+    assert "truncated by the token limit" in record.correction_errors[0]
+    correction = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
+    assert "concise" in correction.lower()
+    assert "truncated" in correction.lower()
+
+
+@pytest.mark.asyncio
+async def test_structured_completion_exhausts_truncation_retries(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    record = RunRecord(id="exhaust-run", owner="agent", repo="forge0", issue_number=12, issue_title="Exhausted")
+    client = AsyncMock()
+    client.chat_with_usage.side_effect = [
+        ChatResult(content='{"files": ["README.md', usage={"total_tokens": 100}, finish_reason="length"),
+        ChatResult(content='{"files": ["README.md', usage={"total_tokens": 90}, finish_reason="length"),
+        ChatResult(content='{"files": ["README.md', usage={"total_tokens": 80}, finish_reason="length"),
+    ]
+
+    with pytest.raises(DogfoodError, match="token limit"):
+        await service._json_completion(
+            client,
+            record,
+            messages=[{"role": "user", "content": "plan"}],
+            model="planner",
+            temperature=0.1,
+            max_tokens=100,
+            validate=service._validate_plan,
+        )
+
+    assert client.chat_with_usage.await_count == 3
+    assert record.usage["total_tokens"] == 270
+    assert len(record.correction_errors) == 3
+    assert all("truncated by the token limit" in err for err in record.correction_errors)
+
+
+@pytest.mark.asyncio
+async def test_structured_completion_recovers_after_truncation(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    record = RunRecord(id="recover-run", owner="agent", repo="forge0", issue_number=13, issue_title="Recover")
+    client = AsyncMock()
+    client.chat_with_usage.side_effect = [
+        ChatResult(content='{"files": ["README.md', usage={"total_tokens": 100}, finish_reason="length"),
+        ChatResult(content='{"files": ["README.md"]}', usage={"total_tokens": 40}, finish_reason="stop"),
+    ]
+
+    result = await service._json_completion(
+        client,
+        record,
+        messages=[{"role": "user", "content": "plan"}],
+        model="planner",
+        temperature=0.1,
+        max_tokens=100,
+        validate=service._validate_plan,
+    )
+
+    assert result == {"files": ["README.md"]}
+    assert client.chat_with_usage.await_count == 2
+    assert record.usage["total_tokens"] == 140
+    assert len(record.correction_errors) == 1
+    assert "truncated by the token limit" in record.correction_errors[0]
+
+
+def test_complete_response_guard_rejects_implementation_truncation(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+
+    with pytest.raises(DogfoodError, match="significantly more concise JSON"):
+        service._ensure_complete(ChatResult(content="partial", finish_reason="length"))
+
+
+@pytest.mark.asyncio
 async def test_verification_returns_failure_output_for_persistence(tmp_path) -> None:
     workspace = GitWorkspace(tmp_path / "workspace", config(tmp_path), "token")
     workspace.repo_path.mkdir(parents=True)

@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from . import gitea
-from .llm_client import LLMClient, LLMConfig
+from .llm_client import ChatResult, LLMClient, LLMConfig
 
 
 class DogfoodError(RuntimeError):
@@ -592,6 +592,7 @@ class DogfoodService:
                     )
                     self._add_usage(record, code_result.usage)
                     try:
+                        self._ensure_complete(code_result)
                         file_implementation = self._parse_json(code_result.content)
                         changes = file_implementation.get("changes")
                         if not isinstance(changes, list) or len(changes) != 1:
@@ -604,11 +605,11 @@ class DogfoodService:
                             implementation = file_implementation
                         break
                     except DogfoodError as exc:
-                        if attempt == 2:
-                            raise
                         correction = self._safe_error(exc)
                         record.correction_errors.append(f"implementation {target_file}: {correction}")
                         self.store.save(record)
+                        if attempt == 2:
+                            raise
 
             staged_files, diff_lines, diff = await workspace.stage_and_measure()
             if set(staged_files) != set(applied):
@@ -909,17 +910,19 @@ class DogfoodService:
                 response_format={"type": "json_object"},
             )
             self._add_usage(record, result.usage)
+
             try:
+                self._ensure_complete(result)
                 parsed = self._parse_json(result.content)
                 if validate is not None:
                     validate(parsed)
                 return parsed
             except DogfoodError as exc:
-                if attempt == 2:
-                    raise
                 correction = self._safe_error(exc)
                 record.correction_errors.append(f"{model}: {correction}")
                 self.store.save(record)
+                if attempt == 2:
+                    raise
         raise DogfoodError("Structured response correction was exhausted")
 
     async def _comment(self, record: RunRecord, body: str) -> None:
@@ -941,6 +944,14 @@ class DogfoodService:
         if not isinstance(label_id, int):
             raise DogfoodError("Gitea did not return the agent label ID")
         return label_id
+
+    @staticmethod
+    def _ensure_complete(result: ChatResult) -> None:
+        if result.finish_reason == "length":
+            raise DogfoodError(
+                "Response was truncated by the token limit (finish_reason=length). "
+                "Return complete, significantly more concise JSON with no unnecessary explanation."
+            )
 
     @staticmethod
     def _parse_json(content: str) -> dict[str, Any]:

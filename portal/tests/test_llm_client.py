@@ -256,6 +256,123 @@ class TestLLMClientChatCompletion:
             with pytest.raises(LLMResponseError, match="invalid response"):
                 await client.chat(messages=[{"role": "user", "content": "test"}])
 
+    @pytest.mark.asyncio
+    async def test_finish_reason_captured_from_response(self, config):
+        """Test that finish_reason is captured from the provider response."""
+        from app.llm_client import LLMClient
+
+        client = LLMClient(config)
+
+        with patch("app.llm_client.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "choices": [
+                    {
+                        "message": {"content": "truncated response"},
+                        "finish_reason": "length",
+                    }
+                ]
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await client.chat_with_usage(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        assert result.finish_reason == "length"
+        assert result.content == "truncated response"
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_defaults_to_stop(self, config):
+        """Test that finish_reason defaults to 'stop' for backwards compatibility."""
+        from app.llm_client import LLMClient
+
+        client = LLMClient(config)
+
+        with patch("app.llm_client.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "choices": [
+                    {
+                        "message": {"content": "complete response"},
+                    }
+                ]
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await client.chat_with_usage(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        assert result.finish_reason == "stop"
+        assert result.content == "complete response"
+
+    @pytest.mark.asyncio
+    async def test_non_string_finish_reason_defaults_to_stop(self, config):
+        from app.llm_client import LLMClient
+
+        client = LLMClient(config)
+
+        with patch("app.llm_client.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.json.return_value = {
+                "choices": [{"message": {"content": "complete"}, "finish_reason": None}]
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await client.chat_with_usage(messages=[{"role": "user", "content": "test"}])
+
+        assert result.finish_reason == "stop"
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_stop_normal_response(self, config):
+        """Test that finish_reason is 'stop' for normal completion."""
+        from app.llm_client import LLMClient
+
+        client = LLMClient(config)
+
+        with patch("app.llm_client.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "choices": [
+                    {
+                        "message": {"content": "normal response"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            result = await client.chat_with_usage(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        assert result.finish_reason == "stop"
+        assert result.content == "normal response"
+
 
 class TestLLMClientCostTracking:
     """Test cost tracking per call."""
