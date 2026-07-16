@@ -717,7 +717,7 @@ class DogfoodService:
     @staticmethod
     def _draft_title(implementation: dict[str, Any], fallback: str) -> str:
         title = str(implementation.get("pr_title") or fallback).strip().splitlines()[0][:180]
-        return title if title.lower().startswith("draft:") else f"Draft: {title}"
+        return title if title.lower().startswith(("wip:", "[wip]")) else f"WIP: {title}"
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:

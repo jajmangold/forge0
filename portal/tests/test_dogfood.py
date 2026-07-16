@@ -131,7 +131,8 @@ def test_llm_json_parsing_commit_and_error_sanitization(monkeypatch, tmp_path) -
     service = DogfoodService(config(tmp_path))
     assert service._parse_json("```json\n{\"pass\": true}\n```") == {"pass": True}
     assert service._commit_message({"commit_message": "do anything"}, 9) == "feat(dogfood): address issue 9"
-    assert service._draft_title({"pr_title": "Improve it"}, "fallback") == "Draft: Improve it"
+    assert service._draft_title({"pr_title": "Improve it"}, "fallback") == "WIP: Improve it"
+    assert service._draft_title({"pr_title": "WIP: Existing"}, "fallback") == "WIP: Existing"
 
     monkeypatch.delenv("GITEA_TOKEN", raising=False)
     assert service._safe_error(RuntimeError("normal failure")) == "normal failure"
