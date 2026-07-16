@@ -35,6 +35,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- share planned file contracts
 - hand drafts off for review
 - enforce Gitea canonical origin
 - integrate Gitea workspace login
@@ -67,6 +68,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
