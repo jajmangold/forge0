@@ -778,6 +778,7 @@ async def test_discovery_creates_one_deduplicated_ready_issue_for_repeated_failu
             )
         )
     create = AsyncMock(return_value={"number": 40})
+    enqueue = AsyncMock(return_value=RunRecord("queued", "agent", "forge0", 40, "Auto"))
 
     with (
         patch("app.dogfood.gitea.list_issues", new=AsyncMock(return_value=[])),
@@ -786,6 +787,7 @@ async def test_discovery_creates_one_deduplicated_ready_issue_for_repeated_failu
             new=AsyncMock(return_value=[{"id": 7, "name": "agent:ready"}]),
         ),
         patch("app.dogfood.gitea.create_issue", new=create),
+        patch.object(service, "enqueue", new=enqueue),
     ):
         await service._discover_failures()
 
@@ -795,6 +797,38 @@ async def test_discovery_creates_one_deduplicated_ready_issue_for_repeated_failu
     assert "Occurrences: 2" in request["body"]
     assert "<!-- forge0-discovery:" in request["body"]
     assert "portal/app/dogfood.py" in request["body"]
+    assert request["body"].startswith("<!-- forge0-discovery:")
+    enqueue.assert_awaited_once_with("agent", "forge0", 40)
+
+
+@pytest.mark.asyncio
+async def test_discovery_respects_open_issue_cap(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path, auto_discovery_enabled=True))
+    for run_id in ("failed-one", "failed-two"):
+        service.store.save(
+            RunRecord(
+                id=run_id,
+                owner="agent",
+                repo="forge0",
+                issue_number=1,
+                issue_title="Failure",
+                status=RunStatus.FAILED,
+                error="same recurring failure",
+            )
+        )
+    discovered = [
+        {"state": "open", "body": f"<!-- forge0-discovery:{index} -->"}
+        for index in range(2)
+    ]
+    create = AsyncMock()
+
+    with (
+        patch("app.dogfood.gitea.list_issues", new=AsyncMock(return_value=discovered)),
+        patch("app.dogfood.gitea.create_issue", new=create),
+    ):
+        await service._discover_failures()
+
+    create.assert_not_awaited()
 
 
 def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> None:
