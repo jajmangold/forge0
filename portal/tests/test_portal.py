@@ -22,13 +22,55 @@ def test_healthcheck() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_auto_login_is_disabled_by_default(monkeypatch) -> None:
-    monkeypatch.delenv("GITEA_AUTO_LOGIN", raising=False)
+def test_auto_login_can_be_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("GITEA_AUTO_LOGIN", "false")
 
     response = client.get("/gitea-login", follow_redirects=False)
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/gitea/user/login"
+    assert response.headers["location"] == "/gitea/user/login?redirect_to=%2Fgitea%2F"
+
+
+def test_gitea_login_preserves_safe_destination(monkeypatch) -> None:
+    monkeypatch.setenv("GITEA_AUTO_LOGIN", "false")
+
+    response = client.get(
+        "/gitea-login?next=/gitea/owner/repo/src/branch/main/README.md",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].endswith(
+        "redirect_to=%2Fgitea%2Fowner%2Frepo%2Fsrc%2Fbranch%2Fmain%2FREADME.md"
+    )
+
+
+def test_gitea_login_rejects_external_destination(monkeypatch) -> None:
+    monkeypatch.setenv("GITEA_AUTO_LOGIN", "false")
+
+    response = client.get("/gitea-login?next=https://example.com", follow_redirects=False)
+
+    assert response.headers["location"] == "/gitea/user/login?redirect_to=%2Fgitea%2F"
+
+
+def test_integrated_gitea_login_is_enabled_for_loopback_default(monkeypatch) -> None:
+    monkeypatch.delenv("GITEA_AUTO_LOGIN", raising=False)
+    login_response = Mock()
+    login_response.headers.get_list.return_value = [
+        "i_like_gitea=session-value; Path=/gitea; HttpOnly; SameSite=Lax"
+    ]
+    with patch("app.main.httpx.AsyncClient") as client_class:
+        client_class.return_value.__aenter__.return_value.post = AsyncMock(
+            return_value=login_response
+        )
+        response = client.get(
+            "/gitea-login?next=/gitea/owner/repo",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/gitea/owner/repo"
+    assert "i_like_gitea=session-value" in response.headers["set-cookie"]
 
 
 def test_chat_rejects_empty_queries() -> None:
@@ -138,7 +180,10 @@ async def test_markdown_rendering_uses_gitea_sanitizer_and_repairs_proxy_links()
         client_class.return_value.__aenter__.return_value.post = post
         result = await gitea.render_markdown("# Project", "owner/repo")
 
-    assert '<a href="/gitea/owner/repo/src/docs">Docs</a>' in result
+    assert (
+        '<a href="/gitea-login?next=%2Fgitea%2Fowner%2Frepo%2Fsrc%2Fdocs">Docs</a>'
+        in result
+    )
     post.assert_awaited_once_with(
         f"{gitea.GITEA_URL}/api/v1/markdown",
         headers=gitea._headers,

@@ -22,6 +22,7 @@ app = FastAPI(title="Forge0 Portal", docs_url=None, redoc_url=None)
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+templates.env.globals["gitea_link"] = gitea.web_link
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 
 GITEA_INTERNAL = os.getenv("GITEA_URL", "http://gitea:3000")
@@ -152,11 +153,20 @@ async def gitea_root_redirect():
 
 
 @app.get("/gitea-login", include_in_schema=False)
-async def gitea_auto_login(request: Request):
+async def gitea_auto_login(request: Request, next: str = "/gitea/"):
     """Auto-sign in to Gitea and redirect. Creates a web session so the user
     is authenticated when they land on Gitea's UI."""
-    if os.getenv("GITEA_AUTO_LOGIN", "false").lower() != "true":
-        return RedirectResponse(url="/gitea/user/login", status_code=302)
+    safe_destination = (
+        next.startswith("/gitea/")
+        and "\\" not in next
+        and not any(character in next for character in ("\r", "\n", "\0"))
+    )
+    destination = next if safe_destination else "/gitea/"
+    if os.getenv("GITEA_AUTO_LOGIN", "true").lower() != "true":
+        from urllib.parse import urlencode
+
+        query = urlencode({"redirect_to": destination})
+        return RedirectResponse(url=f"/gitea/user/login?{query}", status_code=302)
 
     gitea_user = os.getenv("GITEA_ADMIN_USER", "agent")
     gitea_pass = os.getenv("GITEA_ADMIN_PASS", "agentpass123")
@@ -172,7 +182,7 @@ async def gitea_auto_login(request: Request):
         )
 
     # Redirect to Gitea, forwarding session cookies
-    response = Response(status_code=302, headers={"Location": "/gitea/"})
+    response = Response(status_code=302, headers={"Location": destination})
     # Parse all Set-Cookie headers — keep only the LAST value per cookie name
     # (Gitea sets the same cookie multiple times: first a temp, then the real session)
     seen = {}

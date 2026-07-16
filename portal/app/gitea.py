@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -11,6 +13,12 @@ GITEA_URL = os.getenv("GITEA_URL", "http://gitea:3000")
 GITEA_TOKEN = os.getenv("GITEA_TOKEN", "")
 
 _headers = {"Authorization": f"token {GITEA_TOKEN}"}
+
+
+def web_link(path: str = "") -> str:
+    """Return a portal login gateway URL for a Gitea UI destination."""
+    destination = f"/gitea/{path.lstrip('/')}"
+    return f"/gitea-login?{urlencode({'next': destination})}"
 
 
 async def _request(
@@ -83,9 +91,14 @@ async def render_markdown(text: str, context: str) -> str:
         )
         response.raise_for_status()
 
-    # Gitea's renderer emits links for its configured origin without the
-    # portal's reverse-proxy prefix. Keep repository-relative links in-app.
-    return response.text.replace("http://localhost:3001/", "/gitea/")
+    # Gitea's renderer emits repository links for its configured origin without
+    # the portal's proxy prefix. Route those through the session-aware gateway.
+    rendered = response.text.replace("http://localhost:3001/", "/gitea/")
+    return re.sub(
+        r'href="/gitea/([^\"]*)"',
+        lambda match: f'href="{web_link(match.group(1))}"',
+        rendered,
+    )
 
 
 async def list_contents(owner: str, name: str, path: str = "") -> list[dict]:

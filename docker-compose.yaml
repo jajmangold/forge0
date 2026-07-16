@@ -67,7 +67,7 @@ services:
       GITEA_TOKEN: ${GITEA_API_TOKEN}
       GITEA_ADMIN_USER: ${GITEA_ADMIN_USER:-agent}
       GITEA_ADMIN_PASS: ${GITEA_ADMIN_PASS:-agentpass123}
-      GITEA_AUTO_LOGIN: ${GITEA_AUTO_LOGIN:-false}
+      GITEA_AUTO_LOGIN: ${GITEA_AUTO_LOGIN:-true}
       SEARXNG_URL: http://searxng:8080
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}

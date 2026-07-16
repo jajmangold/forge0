@@ -5,7 +5,7 @@
 <div class="repo-detail">
   <div class="repo-header">
     <div class="page-eyebrow">Repository</div>
-    <h1><a href="/gitea/{{ repo.full_name }}">{{ repo.full_name }}</a></h1>
+    <h1><a href="{{ gitea_link(repo.full_name) }}">{{ repo.full_name }}</a></h1>
     {% if repo.description %}<p class="repo-desc-full">{{ repo.description }}</p>{% endif %}
     <div class="repo-stats-row">
       <span>★ {{ repo.stars_count or 0 }}</span>
@@ -15,7 +15,7 @@
       <span>Branch <code>{{ repo.default_branch }}</code></span>
       <span class="repo-actions">
         <a href="/repo/{{ repo.full_name }}/chat" class="btn btn-primary">Ask about this project</a>
-        <a href="/gitea/{{ repo.full_name }}" class="btn">Browse in Gitea ↗</a>
+        <a href="{{ gitea_link(repo.full_name) }}" class="btn">Browse in Gitea ↗</a>
       </span>
     </div>
   </div>
@@ -28,7 +28,7 @@
         <div class="file-tree">
           {% for f in file_tree|sort(attribute='type', reverse=true) %}
           <a class="file-entry file-link {{ f.type }}"
-             href="/gitea/{{ repo.full_name }}/src/branch/{{ repo.default_branch }}/{{ f.name }}">
+             href="{{ gitea_link(repo.full_name ~ '/src/branch/' ~ repo.default_branch ~ '/' ~ f.name) }}">
             <span aria-hidden="true">{% if f.type == 'dir' %}▸{% else %}·{% endif %}</span>
             <span>{{ f.name }}{% if f.type == 'dir' %}/{% endif %}</span>
           </a>
@@ -39,7 +39,7 @@
 
       {% if readme %}
       <section class="panel" aria-labelledby="readme-title">
-        <div class="panel-header"><h2 id="readme-title">README</h2><a class="btn btn-quiet" href="/gitea/{{ repo.full_name }}/src/branch/{{ repo.default_branch }}/README.md">Open file ↗</a></div>
+        <div class="panel-header"><h2 id="readme-title">README</h2><a class="btn btn-quiet" href="{{ gitea_link(repo.full_name ~ '/src/branch/' ~ repo.default_branch ~ '/README.md') }}">Open file ↗</a></div>
         <div class="readme-body markdown-body">
           {% if readme_html %}{{ readme_html }}{% else %}<pre>{{ readme }}</pre>{% endif %}
         </div>
@@ -70,7 +70,7 @@
         <div class="panel-header"><h2>Recent commits</h2></div>
         <div class="commit-list">
           {% for c in commits[:8] %}
-          <a class="commit-item" href="/gitea/{{ repo.full_name }}/commit/{{ c.sha }}">
+          <a class="commit-item" href="{{ gitea_link(repo.full_name ~ '/commit/' ~ c.sha) }}">
             <code class="commit-sha">{{ c.sha[:7] }}</code>
             <span class="commit-msg">{{ c.commit.message.split('\n')[0][:80] }}</span>
             <span class="commit-ago">{{ c.commit.author.date | time_ago if c.commit and c.commit.author else '' }}</span>
@@ -83,14 +83,14 @@
       {% if issues %}
       <section class="panel">
         <div class="panel-header"><h2>Open issues</h2><span class="badge">{{ issues|length }}</span></div>
-        {% for issue in issues[:5] %}<a class="issue-item" href="/gitea/{{ repo.full_name }}/issues/{{ issue.number }}"><span class="issue-num">#{{ issue.number }}</span><span class="issue-title">{{ issue.title[:60] }}</span></a>{% endfor %}
+        {% for issue in issues[:5] %}<a class="issue-item" href="{{ gitea_link(repo.full_name ~ '/issues/' ~ issue.number) }}"><span class="issue-num">#{{ issue.number }}</span><span class="issue-title">{{ issue.title[:60] }}</span></a>{% endfor %}
       </section>
       {% endif %}
 
       {% if pulls %}
       <section class="panel">
         <div class="panel-header"><h2>Pull requests</h2><span class="badge">{{ pulls|length }}</span></div>
-        {% for pr in pulls[:5] %}<a class="issue-item" href="/gitea/{{ repo.full_name }}/pulls/{{ pr.number }}"><span class="issue-num">#{{ pr.number }}</span><span class="issue-title">{{ pr.title[:60] }}</span></a>{% endfor %}
+        {% for pr in pulls[:5] %}<a class="issue-item" href="{{ gitea_link(repo.full_name ~ '/pulls/' ~ pr.number) }}"><span class="issue-num">#{{ pr.number }}</span><span class="issue-title">{{ pr.title[:60] }}</span></a>{% endfor %}
       </section>
       {% endif %}
     </aside>

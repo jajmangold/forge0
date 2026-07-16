@@ -3,6 +3,6 @@
 {% block content %}
 <div class="page-header">
   <div><div class="page-eyebrow">{{ status_code }}</div><h1>{{ title }}</h1><p>{{ message }}</p></div>
-  <div class="page-actions"><a class="btn" href="/">Back to overview</a><a class="btn btn-primary" href="/gitea/">Browse repositories ↗</a></div>
+  <div class="page-actions"><a class="btn" href="/">Back to overview</a><a class="btn btn-primary" href="{{ gitea_link() }}">Browse repositories ↗</a></div>
 </div>
 {% endblock %}

@@ -7,14 +7,18 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from . import gitea
 from .llm_client import LLMClient, LLMConfig, LLMResponseError
 
 router = APIRouter()
 
 GITEA_INTERNAL = os.getenv("GITEA_URL", "http://gitea:3000")
 GITEA_TOKEN = os.getenv("GITEA_TOKEN", "")
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.globals["gitea_link"] = gitea.web_link
 
 
 class ChatMessage(BaseModel):
@@ -169,9 +173,6 @@ When referencing issues, use the format: #123
 @router.get("/repo/{owner}/{name:path}/chat", response_class=HTMLResponse)
 async def chat_page(request: Request, owner: str, name: str):
     """Chat page for a project."""
-    from fastapi.templating import Jinja2Templates
-    templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-    
     return templates.TemplateResponse(request, "chat.html", {
         "owner": owner,
         "repo": name,

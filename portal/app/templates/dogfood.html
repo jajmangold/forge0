@@ -10,8 +10,8 @@
       <p>Follow issue-to-draft-PR work for <code>{{ config.full_name }}</code>, including failures, repairs, and review outcomes.</p>
     </div>
     <div class="page-actions">
-      <a class="btn" href="/gitea/{{ config.full_name }}/issues">View source issues ↗</a>
-      <a class="btn btn-primary" href="/gitea/{{ config.full_name }}/issues/new">Create an issue ↗</a>
+      <a class="btn" href="{{ gitea_link(config.full_name ~ '/issues') }}">View source issues ↗</a>
+      <a class="btn btn-primary" href="{{ gitea_link(config.full_name ~ '/issues/new') }}">Create an issue ↗</a>
     </div>
   </div>
 

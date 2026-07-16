@@ -29,7 +29,7 @@
         <kbd>Ctrl K</kbd>
       </button>
       <div class="header-right">
-        <a class="header-link" href="/gitea/" title="Open Gitea">Gitea ↗</a>
+        <a class="header-link" href="{{ gitea_link() }}" title="Open Gitea">Gitea ↗</a>
         <button class="icon-button theme-toggle" type="button" aria-label="Toggle color theme"
                 onclick="toggleTheme()"><span id="themeIcon" aria-hidden="true">☾</span></button>
       </div>
@@ -52,9 +52,9 @@
         </a>
 
         <p class="nav-label nav-label-spaced">Code &amp; review</p>
-        <a href="/gitea/issues" class="nav-item"><span class="nav-icon" aria-hidden="true">◉</span><span>Issues</span></a>
-        <a href="/gitea/pulls" class="nav-item"><span class="nav-icon" aria-hidden="true">⑂</span><span>Pull requests</span></a>
-        <a href="/gitea/" class="nav-item"><span class="nav-icon" aria-hidden="true">◇</span><span>Repositories in Gitea</span></a>
+        <a href="{{ gitea_link('issues') }}" class="nav-item"><span class="nav-icon" aria-hidden="true">◉</span><span>Issues</span></a>
+        <a href="{{ gitea_link('pulls') }}" class="nav-item"><span class="nav-icon" aria-hidden="true">⑂</span><span>Pull requests</span></a>
+        <a href="{{ gitea_link() }}" class="nav-item"><span class="nav-icon" aria-hidden="true">◇</span><span>Repositories in Gitea</span></a>
       </nav>
 
       {% if repos %}
@@ -101,9 +101,9 @@
         <a class="command-item" data-search="overview dashboard repositories projects" href="/"><span>⌂</span><span><strong>Overview</strong><small>Health and repositories</small></span></a>
         <a class="command-item" data-search="actions workflows runs ci" href="/actions"><span>▶</span><span><strong>Workflow runs</strong><small>Build and automation status</small></span></a>
         <a class="command-item" data-search="self extension dogfood agent runs" href="/dogfood"><span>↻</span><span><strong>Self-extension</strong><small>Supervised agent activity</small></span></a>
-        <a class="command-item" data-search="issues bugs tasks" href="/gitea/issues"><span>◉</span><span><strong>Issues</strong><small>Open work in Gitea</small></span></a>
-        <a class="command-item" data-search="pull requests review drafts" href="/gitea/pulls"><span>⑂</span><span><strong>Pull requests</strong><small>Review proposed changes</small></span></a>
-        <a class="command-item" data-search="gitea repositories source code" href="/gitea/"><span>◇</span><span><strong>Gitea</strong><small>Full source control interface</small></span></a>
+        <a class="command-item" data-search="issues bugs tasks" href="{{ gitea_link('issues') }}"><span>◉</span><span><strong>Issues</strong><small>Open work in Gitea</small></span></a>
+        <a class="command-item" data-search="pull requests review drafts" href="{{ gitea_link('pulls') }}"><span>⑂</span><span><strong>Pull requests</strong><small>Review proposed changes</small></span></a>
+        <a class="command-item" data-search="gitea repositories source code" href="{{ gitea_link() }}"><span>◇</span><span><strong>Gitea</strong><small>Full source control interface</small></span></a>
         <p class="command-empty" id="commandEmpty" hidden>No matching pages</p>
       </div>
     </div>
