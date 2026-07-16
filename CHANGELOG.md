@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- add immutable portal release gates
 - supervise durable queued runs
 - ground critic reviews in evidence spans
 - add shared contract ledger
@@ -77,6 +78,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - document durable self-extension recovery behavior
 - refresh generated documentation
 - refresh generated documentation
