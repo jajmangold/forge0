@@ -11,6 +11,8 @@ MAX_FIELD_CHARS = 1_000
 MAX_FINDINGS = 10
 MAX_ACCEPTANCE_CRITERIA = 20
 MAX_ACCEPTANCE_EVIDENCE_CHARS = 500
+MAX_ACCEPTANCE_EVIDENCE_SPANS = 8
+MAX_EVIDENCE_SPAN_CHARS = 400
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
@@ -28,6 +30,28 @@ class AcceptanceReview:
     criterion_index: int
     passed: bool
     evidence: str
+    evidence_span_ids: tuple[str, ...]
+
+
+def build_evidence_spans(diff: str, repository_evidence: str) -> dict[str, str]:
+    """Split bounded critic inputs into stable, addressable single-line spans."""
+    spans: dict[str, str] = {}
+    for prefix, text in (("D", diff), ("E", repository_evidence)):
+        sequence = 0
+        for line in text.splitlines():
+            if not line:
+                continue
+            for offset in range(0, len(line), MAX_EVIDENCE_SPAN_CHARS):
+                sequence += 1
+                spans[f"{prefix}{sequence:04d}"] = line[
+                    offset : offset + MAX_EVIDENCE_SPAN_CHARS
+                ]
+    return spans
+
+
+def render_evidence_spans(spans: dict[str, str]) -> str:
+    """Render the exact catalog whose identifiers the critic must cite."""
+    return "\n".join(f"[{span_id}] {value}" for span_id, value in spans.items())
 
 
 def extract_acceptance_criteria(text: str) -> list[str]:
@@ -57,7 +81,7 @@ def extract_acceptance_criteria(text: str) -> list[str]:
 
 
 def _acceptance_reviews(
-    value: Any, expected_count: int, evidence_text: str | None
+    value: Any, expected_count: int, evidence_spans: dict[str, str]
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) != expected_count:
         raise ValueError(f"acceptance_reviews must contain exactly {expected_count} entries")
@@ -66,9 +90,10 @@ def _acceptance_reviews(
     for position, item in enumerate(value):
         if not isinstance(item, dict):
             raise ValueError(f"acceptance_reviews[{position}] must be an object")
-        if set(item) != {"criterion_index", "pass", "evidence"}:
+        if set(item) != {"criterion_index", "pass", "evidence_span_ids"}:
             raise ValueError(
-                f"acceptance_reviews[{position}] must contain exactly criterion_index, pass, and evidence"
+                f"acceptance_reviews[{position}] must contain exactly criterion_index, pass, and "
+                "evidence_span_ids"
             )
         index = item["criterion_index"]
         if isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= expected_count:
@@ -79,19 +104,37 @@ def _acceptance_reviews(
         passed = item["pass"]
         if not isinstance(passed, bool):
             raise ValueError(f"acceptance_reviews[{position}].pass must be a boolean")
-        raw_evidence = item["evidence"]
-        if not isinstance(raw_evidence, str):
-            raise ValueError(f"acceptance_reviews[{position}].evidence must be a string")
-        raw_evidence = raw_evidence.strip()
-        if not raw_evidence or len(raw_evidence) > MAX_ACCEPTANCE_EVIDENCE_CHARS:
-            raise ValueError(f"acceptance_reviews[{position}].evidence must be 1-500 characters")
-        if evidence_text is not None and raw_evidence not in evidence_text:
-            raise ValueError(f"acceptance_reviews[{position}].evidence is not an exact supplied quote")
+        span_ids = item["evidence_span_ids"]
+        if not isinstance(span_ids, list) or not 1 <= len(span_ids) <= MAX_ACCEPTANCE_EVIDENCE_SPANS:
+            raise ValueError(
+                f"acceptance_reviews[{position}].evidence_span_ids must contain 1-"
+                f"{MAX_ACCEPTANCE_EVIDENCE_SPANS} entries"
+            )
+        if any(not isinstance(span_id, str) for span_id in span_ids):
+            raise ValueError(f"acceptance_reviews[{position}].evidence_span_ids must be strings")
+        if len(set(span_ids)) != len(span_ids):
+            raise ValueError(f"acceptance_reviews[{position}].evidence_span_ids must be unique")
+        unknown = [span_id for span_id in span_ids if span_id not in evidence_spans]
+        if unknown:
+            raise ValueError(
+                f"acceptance_reviews[{position}].evidence_span_ids contains unknown span {unknown[0]}"
+            )
+        raw_evidence = "\n".join(evidence_spans[span_id] for span_id in span_ids)
+        if len(raw_evidence) > MAX_ACCEPTANCE_EVIDENCE_CHARS:
+            raise ValueError(
+                f"acceptance_reviews[{position}] resolved evidence exceeds "
+                f"{MAX_ACCEPTANCE_EVIDENCE_CHARS} characters"
+            )
         evidence = html.escape(raw_evidence, quote=True).replace("`", "&#96;")
-        normalized.append(AcceptanceReview(index, passed, evidence))
+        normalized.append(AcceptanceReview(index, passed, evidence, tuple(span_ids)))
     normalized.sort(key=lambda review: review.criterion_index)
     return [
-        {"criterion_index": review.criterion_index, "pass": review.passed, "evidence": review.evidence}
+        {
+            "criterion_index": review.criterion_index,
+            "pass": review.passed,
+            "evidence": review.evidence,
+            "evidence_span_ids": list(review.evidence_span_ids),
+        }
         for review in normalized
     ]
 
@@ -141,7 +184,7 @@ def validate_critic_response(
     *,
     changed_files: set[str] | None = None,
     expected_criterion_count: int | None = None,
-    acceptance_evidence_text: str | None = None,
+    acceptance_evidence_spans: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic JSON-serializable critic response or raise ValueError."""
     if not isinstance(value, dict):
@@ -176,8 +219,10 @@ def validate_critic_response(
         raise ValueError("a failing critic requires feedback or a finding")
     result = {"pass": passed, "feedback": feedback, "findings": [asdict(item) for item in findings]}
     if expected_criterion_count is not None:
+        if acceptance_evidence_spans is None:
+            raise ValueError("acceptance evidence spans are required")
         reviews = _acceptance_reviews(
-            value.get("acceptance_reviews"), expected_criterion_count, acceptance_evidence_text
+            value.get("acceptance_reviews"), expected_criterion_count, acceptance_evidence_spans
         )
         if passed and any(review["pass"] is not True for review in reviews):
             raise ValueError("pass cannot be true when an acceptance review fails")

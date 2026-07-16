@@ -5,6 +5,8 @@ from app.critic_findings import (
     MAX_FEEDBACK_CHARS,
     MAX_FIELD_CHARS,
     MAX_FINDINGS,
+    build_evidence_spans,
+    render_evidence_spans,
     validate_critic_response,
 )
 
@@ -121,3 +123,44 @@ def test_normalizes_escapes_sorts_and_round_trips() -> None:
     assert result["findings"][0]["concern"] == "&lt;b&gt;&#96;unsafe&#96;&lt;/b&gt;"
     assert result["findings"][0]["evidence"] == "line two"
     assert json.loads(json.dumps(result)) == result
+
+
+def test_evidence_spans_are_deterministic_bounded_and_source_prefixed() -> None:
+    spans = build_evidence_spans("+short\n" + ("x" * 401), "read-only\n")
+
+    assert spans == {
+        "D0001": "+short",
+        "D0002": "x" * 400,
+        "D0003": "x",
+        "E0001": "read-only",
+    }
+    assert render_evidence_spans(spans).startswith("[D0001] +short\n[D0002] ")
+
+
+def test_acceptance_reviews_resolve_only_known_span_ids() -> None:
+    value = response(
+        acceptance_reviews=[
+            {"criterion_index": 1, "pass": True, "evidence_span_ids": ["D0001", "E0001"]}
+        ]
+    )
+    result = validate_critic_response(
+        value,
+        expected_criterion_count=1,
+        acceptance_evidence_spans={"D0001": "+safe <change>", "E0001": "existing `contract`"},
+    )
+
+    assert result["acceptance_reviews"] == [
+        {
+            "criterion_index": 1,
+            "pass": True,
+            "evidence": "+safe &lt;change&gt;\nexisting &#96;contract&#96;",
+            "evidence_span_ids": ["D0001", "E0001"],
+        }
+    ]
+    value["acceptance_reviews"][0]["evidence_span_ids"] = ["D9999"]
+    with pytest.raises(ValueError, match="unknown span D9999"):
+        validate_critic_response(
+            value,
+            expected_criterion_count=1,
+            acceptance_evidence_spans={"D0001": "+safe"},
+        )
