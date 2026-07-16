@@ -8,6 +8,8 @@ def test_portal_release_uses_immutable_canary_and_no_build_promotion() -> None:
     compose = (ROOT / "docker-compose.yaml").read_text()
 
     assert "docker image inspect --format '{{.Id}}'" in script
+    assert 'docker image inspect "$tag"' in script
+    assert "docker build --provenance=false" in script
     assert "FORGE0_SUPERVISOR_ENABLED=false" in script
     assert 'wait_ready "http://localhost:${CANARY_PORT}"' in script
     assert "--no-build portal" in script
