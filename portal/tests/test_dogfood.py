@@ -49,7 +49,7 @@ def test_run_store_persists_records_and_deduplicates_active_issue(tmp_path) -> N
     assert store.active_for_issue("agent", "forge0", 7) is None
 
 
-def test_run_store_releases_interrupted_runs_after_restart(tmp_path) -> None:
+def test_run_store_requeues_restart_safe_interrupted_runs(tmp_path) -> None:
     store = RunStore(tmp_path / "runs")
     interrupted = RunRecord(
         id="run-active",
@@ -71,9 +71,31 @@ def test_run_store_releases_interrupted_runs_after_restart(tmp_path) -> None:
     store.save(completed)
 
     assert store.recover_interrupted() == 1
-    assert store.load("run-active").status is RunStatus.FAILED
-    assert "restart" in store.load("run-active").error
+    recovered = store.load("run-active")
+    assert recovered.status is RunStatus.QUEUED
+    assert recovered.restart_count == 1
+    assert recovered.recovery_events[0]["status"] == "verifying"
+    assert "Recovered" in recovered.error
     assert store.load("run-draft").status is RunStatus.DRAFT_OPENED
+
+
+def test_run_store_fails_closed_when_publication_was_interrupted(tmp_path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.save(
+        RunRecord(
+            id="publishing",
+            owner="agent",
+            repo="forge0",
+            issue_number=10,
+            issue_title="Publish",
+            status=RunStatus.PUBLISHING,
+        )
+    )
+
+    assert store.recover_interrupted() == 1
+    recovered = store.load("publishing")
+    assert recovered.status is RunStatus.FAILED
+    assert "operator review" in recovered.error
 
 
 def test_change_applier_only_changes_planned_allowlisted_files(tmp_path) -> None:
@@ -701,6 +723,43 @@ async def test_enqueue_deduplicates_runs(tmp_path) -> None:
         service._tasks[first.id].cancel()
 
     await __import__("asyncio").gather(*service._tasks.values(), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_supervisor_schedules_durable_queued_runs_and_cleans_stale_workspace(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    record = RunRecord(
+        id="durable-queued",
+        owner="agent",
+        repo="forge0",
+        issue_number=4,
+        issue_title="Resume",
+        branch="agent/4-resume",
+    )
+    service.store.save(record)
+    stale = service.workspace_root / record.id / "repository"
+    stale.mkdir(parents=True)
+    (stale / "partial.txt").write_text("partial")
+    issue = {
+        "number": 4,
+        "title": "Resume",
+        "body": "## Acceptance Criteria\n- resumed",
+        "labels": [{"name": "agent:ready"}],
+    }
+
+    async def wait_forever(*_args) -> None:
+        await __import__("asyncio").Event().wait()
+
+    with (
+        patch("app.dogfood.gitea.get_issue", new=AsyncMock(return_value=issue)),
+        patch.object(service, "_execute", side_effect=wait_forever),
+    ):
+        await service.start()
+        assert record.id in service._tasks
+        assert not stale.exists()
+        await service.stop()
+
+    assert not service._tasks
 
 
 def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> None:
@@ -1877,3 +1936,14 @@ def test_verification_repair_configuration_enforces_hard_cap(monkeypatch, tmp_pa
 
     monkeypatch.setenv("FORGE0_MAX_VERIFICATION_REPAIRS", "0")
     assert DogfoodConfig.from_env().max_verification_repairs == 0
+
+
+def test_concurrent_run_configuration_enforces_hard_cap(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("FORGE0_DATA_DIR", os.fspath(tmp_path))
+    monkeypatch.setenv("FORGE0_SELF_REPO", "agent/forge0")
+    monkeypatch.setenv("FORGE0_MAX_CONCURRENT_RUNS", "5")
+    with pytest.raises(ValueError, match="between 1 and 4"):
+        DogfoodConfig.from_env()
+
+    monkeypatch.setenv("FORGE0_MAX_CONCURRENT_RUNS", "2")
+    assert DogfoodConfig.from_env().max_concurrent_runs == 2

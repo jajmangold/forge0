@@ -5,6 +5,7 @@ import asyncio
 import hmac
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -20,7 +21,18 @@ from . import auth, gitea
 from .chat import router as chat_router
 from .dogfood import DogfoodError, DogfoodService
 
-app = FastAPI(title="Forge0 Portal", docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await get_dogfood_service().start()
+    try:
+        yield
+    finally:
+        if _dogfood_service is not None:
+            await _dogfood_service.stop()
+
+
+app = FastAPI(title="Forge0 Portal", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
