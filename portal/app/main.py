@@ -12,6 +12,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from . import gitea
 from .chat import router as chat_router
@@ -268,10 +269,16 @@ async def repo_detail(request: Request, owner: str, name: str):
         )
 
     readme = None
+    readme_html = None
     try:
         readme = await gitea.get_readme(owner, name)
     except Exception:
         pass
+    if readme:
+        try:
+            readme_html = Markup(await gitea.render_markdown(readme, f"{owner}/{name}"))
+        except Exception:
+            pass
 
     file_tree = []
     try:
@@ -286,6 +293,7 @@ async def repo_detail(request: Request, owner: str, name: str):
         "issues": issues if not isinstance(issues, Exception) else [],
         "pulls": pulls if not isinstance(pulls, Exception) else [],
         "readme": readme,
+        "readme_html": readme_html,
         "file_tree": file_tree if not isinstance(file_tree, Exception) else [],
         "page": "repos",
     })

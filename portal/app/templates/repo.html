@@ -40,7 +40,9 @@
       {% if readme %}
       <section class="panel" aria-labelledby="readme-title">
         <div class="panel-header"><h2 id="readme-title">README</h2><a class="btn btn-quiet" href="/gitea/{{ repo.full_name }}/src/branch/{{ repo.default_branch }}/README.md">Open file ↗</a></div>
-        <div class="readme-body"><pre>{{ readme }}</pre></div>
+        <div class="readme-body markdown-body">
+          {% if readme_html %}{{ readme_html }}{% else %}<pre>{{ readme }}</pre>{% endif %}
+        </div>
       </section>
       {% else %}
       <section class="panel"><div class="empty-state"><strong>No README found</strong><br>Add a README to explain how to use this project.</div></section>

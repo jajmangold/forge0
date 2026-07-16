@@ -178,6 +178,22 @@ td a { font-weight: 650; text-decoration: none; }
 .readme-body pre { max-height: 720px; padding: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-secondary); font-size: 12px; line-height: 1.65; overflow: auto; white-space: pre-wrap; }
 .readme-body p { margin: 0 0 12px; }
 .readme-body p:last-child { margin-bottom: 0; }
+.markdown-body { line-height: 1.65; overflow-wrap: anywhere; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { margin: 1.4em 0 .55em; color: var(--text); line-height: 1.25; letter-spacing: -.02em; }
+.markdown-body h1:first-child, .markdown-body h2:first-child { margin-top: 0; }
+.markdown-body h1 { padding-bottom: .35em; border-bottom: 1px solid var(--border); font-size: 26px; }
+.markdown-body h2 { padding-bottom: .3em; border-bottom: 1px solid var(--border); font-size: 21px; }
+.markdown-body h3 { font-size: 17px; }
+.markdown-body ul, .markdown-body ol { margin: 0 0 16px; padding-left: 28px; }
+.markdown-body li + li { margin-top: 5px; }
+.markdown-body blockquote { margin: 16px 0; padding: 2px 16px; border-left: 3px solid var(--accent); color: var(--text-muted); }
+.markdown-body code { padding: 2px 5px; border-radius: 5px; background: var(--bg); color: var(--text); font: .9em var(--font-mono); }
+.markdown-body pre { max-height: none; white-space: pre; }
+.markdown-body pre code { padding: 0; background: transparent; color: inherit; }
+.markdown-body img { max-width: 100%; height: auto; }
+.markdown-body table { display: block; max-width: 100%; margin: 16px 0; border-collapse: collapse; overflow-x: auto; }
+.markdown-body th, .markdown-body td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+.markdown-body th { background: var(--bg); color: var(--text); }
 .run-mini, .commit-item, .issue-item { display: grid; align-items: center; gap: 9px; padding: 11px 15px; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 12px; }
 .run-mini { grid-template-columns: auto minmax(0, 1fr) auto; }
 .commit-item { grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -228,6 +244,10 @@ td a { font-weight: 650; text-decoration: none; }
 .command-item strong, .command-item small { display: block; }
 .command-item small { margin-top: 1px; color: var(--text-muted); font-size: 11px; }
 .command-empty { padding: 24px; color: var(--text-muted); text-align: center; }
+.connection-notice { position: fixed; z-index: 900; right: 20px; bottom: 20px; display: grid; gap: 3px; width: min(360px, calc(100vw - 32px)); padding: 13px 15px; border: 1px solid color-mix(in srgb, var(--warning) 48%, var(--border)); border-radius: 11px; background: var(--surface-raised); box-shadow: var(--shadow); color: var(--text); }
+.connection-notice[hidden] { display: none; }
+.connection-notice span { color: var(--text-muted); font-size: 11px; }
+.live-dot.offline { background: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 16%, transparent); }
 
 @keyframes pulse { 50% { opacity: .45; } }
 @media (max-width: 1180px) {

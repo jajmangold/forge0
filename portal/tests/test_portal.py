@@ -72,6 +72,8 @@ def test_dashboard_renders_usable_navigation_and_compact_metrics() -> None:
     assert response.status_code == 200
     assert 'aria-label="Primary navigation"' in response.text
     assert 'id="commandPalette"' in response.text
+    assert 'id="connectionNotice"' in response.text
+    assert "htmx:responseError" in response.text
     assert "Build, review, and ship with context." in response.text
     assert 'class="stats"' in response.text
 
@@ -123,6 +125,45 @@ async def test_readme_falls_back_to_common_file_when_endpoint_is_missing() -> No
 
     assert readme == "# Project\n"
     content.assert_awaited_once_with("owner", "repo", "README.md")
+
+
+@pytest.mark.asyncio
+async def test_markdown_rendering_uses_gitea_sanitizer_and_repairs_proxy_links() -> None:
+    rendered = Mock(text='<h1>Project</h1><a href="http://localhost:3001/owner/repo/src/docs">Docs</a>')
+    rendered.raise_for_status = Mock()
+    with patch("app.gitea.httpx.AsyncClient") as client_class:
+        post = AsyncMock(return_value=rendered)
+        client_class.return_value.__aenter__.return_value.post = post
+        result = await gitea.render_markdown("# Project", "owner/repo")
+
+    assert '<a href="/gitea/owner/repo/src/docs">Docs</a>' in result
+    post.assert_awaited_once_with(
+        f"{gitea.GITEA_URL}/api/v1/markdown",
+        headers=gitea._headers,
+        json={"Text": "# Project", "Mode": "gfm", "Context": "owner/repo"},
+    )
+
+
+def test_repository_renders_sanitized_markdown() -> None:
+    repo = {"full_name": "owner/repo", "name": "repo", "owner": {"login": "owner"},
+            "default_branch": "main", "description": "", "stars_count": 0, "forks_count": 0,
+            "open_issues_count": 0, "size": 12, "language": "Python",
+            "updated_at": "2026-07-16T00:00:00Z"}
+    with (
+        patch("app.main.gitea.get_repo", new=AsyncMock(return_value=repo)),
+        patch("app.main.gitea.list_commits", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_workflow_runs", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_issues", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_pulls", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.list_contents", new=AsyncMock(return_value=[])),
+        patch("app.main.gitea.get_readme", new=AsyncMock(return_value="# Project")),
+        patch("app.main.gitea.render_markdown", new=AsyncMock(return_value="<h1>Project</h1>")),
+    ):
+        response = client.get("/repo/owner/repo")
+
+    assert response.status_code == 200
+    assert "<h1>Project</h1>" in response.text
+    assert "&lt;h1&gt;Project&lt;/h1&gt;" not in response.text
 
 
 def test_stuck_detector_catches_repeated_action() -> None:

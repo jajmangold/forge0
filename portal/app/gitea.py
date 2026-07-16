@@ -73,6 +73,21 @@ async def get_readme(owner: str, name: str) -> str | None:
     return None
 
 
+async def render_markdown(text: str, context: str) -> str:
+    """Render Markdown through Gitea's sanitizer for repository-aware links."""
+    async with httpx.AsyncClient(timeout=15, verify=False) as client:
+        response = await client.post(
+            f"{GITEA_URL}/api/v1/markdown",
+            headers=_headers,
+            json={"Text": text, "Mode": "gfm", "Context": context},
+        )
+        response.raise_for_status()
+
+    # Gitea's renderer emits links for its configured origin without the
+    # portal's reverse-proxy prefix. Keep repository-relative links in-app.
+    return response.text.replace("http://localhost:3001/", "/gitea/")
+
+
 async def list_contents(owner: str, name: str, path: str = "") -> list[dict]:
     return await _get(f"/repos/{owner}/{name}/contents/{path}")
 

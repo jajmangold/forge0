@@ -71,8 +71,8 @@
       {% endif %}
 
       <div class="sidebar-footer">
-        <span class="live-dot" aria-hidden="true"></span>
-        <span>Services connected</span>
+        <span class="live-dot" id="serviceStatusDot" aria-hidden="true"></span>
+        <span id="serviceStatusText">Services ready</span>
       </div>
     </aside>
     <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="Close navigation"
@@ -81,6 +81,11 @@
     <main class="main" id="main-content" tabindex="-1">
       <div class="content-shell">{% block content %}{% endblock %}</div>
     </main>
+  </div>
+
+  <div class="connection-notice" id="connectionNotice" role="status" aria-live="polite" hidden>
+    <strong>Live updates paused</strong>
+    <span>Check your connection. Forge0 will keep retrying.</span>
   </div>
 
   <div class="command-palette" id="commandPalette" role="dialog" aria-modal="true"
@@ -111,6 +116,9 @@
     const menuButton = document.querySelector('.menu-toggle');
     const palette = document.getElementById('commandPalette');
     const commandInput = document.getElementById('commandInput');
+    const connectionNotice = document.getElementById('connectionNotice');
+    const serviceStatusDot = document.getElementById('serviceStatusDot');
+    const serviceStatusText = document.getElementById('serviceStatusText');
 
     function updateThemeIcon() {
       document.getElementById('themeIcon').textContent = root.dataset.theme === 'dark' ? '☾' : '☀';
@@ -153,6 +161,17 @@
       });
       document.getElementById('commandEmpty').hidden = visible !== 0;
     }
+    function setConnectionState(connected) {
+      connectionNotice.hidden = connected;
+      serviceStatusDot.classList.toggle('offline', !connected);
+      serviceStatusText.textContent = connected ? 'Services ready' : 'Connection interrupted';
+    }
+    ['htmx:sendError', 'htmx:responseError', 'htmx:timeout'].forEach(name => {
+      document.body.addEventListener(name, () => setConnectionState(false));
+    });
+    document.body.addEventListener('htmx:afterRequest', event => {
+      if (event.detail.successful) setConnectionState(true);
+    });
     document.addEventListener('keydown', event => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault(); openCommandPalette();
