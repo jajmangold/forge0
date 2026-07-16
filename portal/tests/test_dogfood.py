@@ -504,6 +504,68 @@ def test_critic_prompt_requires_evidence_grounding() -> None:
     assert "proposed diff is evidence" in planner
 
 
+def test_plan_shared_contracts_validates_up_to_twelve_unique_strings(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    valid = [f"contract-{i}" for i in range(12)]
+    plan = {"files": ["README.md"], "shared_contracts": valid}
+
+    assert service._validate_plan(plan) == {"README.md"}
+    assert plan["shared_contracts"] == valid
+
+
+def test_plan_shared_contracts_accepts_absent_field(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    plan = {"files": ["README.md"]}
+
+    assert service._validate_plan(plan) == {"README.md"}
+    assert "shared_contracts" not in plan
+
+
+@pytest.mark.parametrize(
+    ("contracts", "error"),
+    [
+        ("not a list", "shared_contracts must be an array"),
+        ([123], "shared_contracts entries must be strings"),
+        ([""], "non-empty"),
+        (["   "], "non-empty"),
+        (["a", "a"], "duplicate"),
+        ([f"contract-{index}" for index in range(13)], "at most 12"),
+        (["x" * 201], "at most 200 characters"),
+    ],
+)
+def test_plan_shared_contracts_rejects_malformed_or_over_limit(tmp_path, contracts, error) -> None:
+    service = DogfoodService(config(tmp_path))
+    plan = {"files": ["README.md"], "shared_contracts": contracts}
+
+    with pytest.raises(DogfoodError, match=error):
+        service._validate_plan(plan)
+
+
+def test_shared_contracts_render_in_implementation_prompt(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    plan = {"files": ["README.md"], "shared_contracts": ["keep API stable", "no breaking changes"]}
+
+    prompt = service._implementation_prompt(
+        {}, plan, "<new file>", "",
+    )
+
+    assert "Shared contract ledger" in prompt
+    assert "keep API stable" in prompt
+    assert "no breaking changes" in prompt
+
+
+def test_shared_contracts_render_empty_explicit_ledger_when_absent(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    plan = {"files": ["README.md"]}
+
+    prompt = service._implementation_prompt(
+        {}, plan, "<new file>", "",
+    )
+
+    assert "Shared contract ledger" in prompt
+    assert "(no shared contracts)" in prompt
+
+
 def test_signed_webhook_selects_only_the_configured_ready_issue(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     body = b'{"action":"opened"}'
@@ -1350,6 +1412,31 @@ async def test_verification_repair_sees_all_planned_file_contracts(tmp_path) -> 
     assert '<file path="README.md">' in prompt
     assert '<contract-file path="contract.py">' in prompt
     assert "list_review_pulls" in prompt
+
+
+@pytest.mark.asyncio
+async def test_verification_repair_renders_shared_contract_ledger(tmp_path) -> None:
+    cfg = config(tmp_path, max_verification_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    record = repair_record("verification-repair-contracts")
+    client = repair_client()
+
+    with patch.object(service, "_comment", new=AsyncMock()):
+        await service._verification_repair_pass(
+            record,
+            workspace,
+            client,
+            {"title": "Repair", "body": "## Acceptance Criteria\n- safe"},
+            {"files": ["README.md"], "shared_contracts": ["keep API stable"]},
+            {"README.md"},
+            {},
+            {"command": "pytest -q", "success": False, "output": "failure"},
+        )
+
+    prompt = client.chat_with_usage.await_args.kwargs["messages"][-1]["content"]
+    assert "Shared contract ledger" in prompt
+    assert "keep API stable" in prompt
 
 
 @pytest.mark.asyncio

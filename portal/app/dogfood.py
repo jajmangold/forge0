@@ -1297,7 +1297,34 @@ class DogfoodService:
         applier = ChangeApplier(Path("."), self.config, planned)
         for path in planned:
             applier._resolve(path)
+        self._validate_shared_contracts(plan)
         return planned
+
+    @staticmethod
+    def _validate_shared_contracts(plan: dict[str, Any]) -> list[str]:
+        if "shared_contracts" not in plan:
+            return []
+        raw_contracts = plan.get("shared_contracts", [])
+        if not isinstance(raw_contracts, list):
+            raise DogfoodError("Planner shared_contracts must be an array")
+        if len(raw_contracts) > 12:
+            raise DogfoodError("Planner shared_contracts must contain at most 12 entries")
+        contracts: list[str] = []
+        seen: set[str] = set()
+        for raw_contract in raw_contracts:
+            if not isinstance(raw_contract, str):
+                raise DogfoodError("Planner shared_contracts entries must be strings")
+            contract = raw_contract.strip()
+            if not contract:
+                raise DogfoodError("Planner shared_contracts entries must be non-empty")
+            if len(contract) > 200:
+                raise DogfoodError("Planner shared_contracts entries must be at most 200 characters")
+            if contract in seen:
+                raise DogfoodError("Planner shared_contracts must not contain duplicates")
+            seen.add(contract)
+            contracts.append(contract)
+        plan["shared_contracts"] = contracts
+        return contracts
 
     def _validate_evidence_files(self, plan: dict[str, Any], root: Path) -> set[str]:
         raw_files = plan.get("evidence_files", [])
@@ -1676,6 +1703,7 @@ class DogfoodService:
             "You are Forge0's planning agent. Produce only JSON with keys summary (string), files (array of exact "
             "repository-relative paths to change), evidence_files (array of at most three existing, read-only "
             "repository-relative files whose contents the critic needs to verify behavioral claims), "
+            "shared_contracts (array of at most twelve unique non-empty strings of at most 200 characters each), "
             "acceptance_checks (array), and risks (array). Choose at most five changed files. "
             "Map every acceptance criterion to a selected implementation or test file, and do not select files that "
             "need no change. If the issue declares a File Scope section, it is authoritative and every selected file "
@@ -1718,6 +1746,11 @@ class DogfoodService:
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
             f"Approved plan:\n{json.dumps(plan, indent=2)}\n\nApproved file contents:\n{files}"
         )
+        shared_contracts = plan.get("shared_contracts", [])
+        if shared_contracts:
+            prompt += "\n\nShared contract ledger:\n" + "\n".join(f"- {contract}" for contract in shared_contracts)
+        else:
+            prompt += "\n\nShared contract ledger:\n(no shared contracts)"
         if target_file:
             prompt += f"\n\nReturn exactly one change, for this target path only: {target_file}"
         if contract_context:
