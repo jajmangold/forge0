@@ -1447,7 +1447,11 @@ class DogfoodService:
             "is supported by the complete diff or planner-selected read-only repository evidence. An unsupported "
             "behavioral claim is a blocking high-severity finding and pass must be false; staging status or internal "
             "consistency never waives contradictory or missing evidence. Also reject "
-            "changes that miss acceptance criteria, weaken safety boundaries, include unrelated work, or lack tests."
+            "changes that miss acceptance criteria, weaken safety boundaries, include unrelated work, or lack tests. "
+            "Judge semantic satisfaction rather than exact phrasing unless the issue explicitly requires exact text. "
+            "Every finding's concern, quoted evidence, and recommendation must agree; omit a finding when its own "
+            "evidence contradicts the concern. Derive punctuation and source-line claims from the supplied diff, not "
+            "from hypothetical rendering."
         )
 
     @staticmethod
