@@ -36,6 +36,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- enforce per-file target assignment
 - create planned files before integration
 - normalize mixed replacement batches
 - let the engine extend itself
@@ -74,6 +75,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
