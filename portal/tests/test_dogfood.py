@@ -162,6 +162,64 @@ def test_issue_validation_requires_label_and_acceptance_criteria(tmp_path) -> No
         service._validate_issue({"labels": [{"name": "agent:ready"}], "body": "Please do it"})
 
 
+def test_issue_file_scope_parses_bullets_and_stops_at_next_heading(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    issue = {
+        "labels": [{"name": "agent:ready"}],
+        "body": (
+            "## File Scope\n\n- `portal/app/dogfood.py`\n- `README.md`\n\n"
+            "## Acceptance Criteria\n\n- ordinary prose is not part of the scope\n"
+        ),
+    }
+
+    service._validate_issue(issue)
+
+    assert service._issue_file_scope(issue) == {"portal/app/dogfood.py", "README.md"}
+
+
+@pytest.mark.parametrize(
+    ("scope", "error"),
+    [
+        ("", "at least one"),
+        ("- README.md", "backtick-wrapped"),
+        ("- `README.md`\n- `README.md`", "duplicate"),
+        ("- `.env`", "Protected path"),
+        ("- `outside.txt`", "outside the allowlist"),
+        ("- `../README.md`", "Unsafe path"),
+        ("- `./README.md`", "canonical repository-relative"),
+    ],
+)
+def test_issue_file_scope_rejects_malformed_or_unsafe_entries(tmp_path, scope: str, error: str) -> None:
+    service = DogfoodService(config(tmp_path))
+    issue = {
+        "labels": [{"name": "agent:ready"}],
+        "body": f"## File Scope\n{scope}\n\n## Acceptance Criteria\n- safe\n",
+    }
+
+    with pytest.raises(DogfoodError, match=error):
+        service._validate_issue(issue)
+
+
+def test_issue_file_scope_cannot_exceed_global_file_limit(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path, max_changed_files=1))
+    issue = {
+        "labels": [{"name": "agent:ready"}],
+        "body": "## File Scope\n- `README.md`\n- `portal/app/dogfood.py`\n\n## Acceptance Criteria\n- safe",
+    }
+
+    with pytest.raises(DogfoodError, match="changed-file limit"):
+        service._validate_issue(issue)
+
+
+def test_plan_cannot_escape_issue_file_scope_and_legacy_plan_is_unchanged(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+
+    assert service._validate_plan({"files": ["README.md"]}, {"README.md"}) == {"README.md"}
+    assert service._validate_plan({"files": ["README.md"]}) == {"README.md"}
+    with pytest.raises(DogfoodError, match="outside the issue File Scope"):
+        service._validate_plan({"files": ["README.md", "portal/app/main.py"]}, {"README.md"})
+
+
 def test_signed_webhook_selects_only_the_configured_ready_issue(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     body = b'{"action":"opened"}'

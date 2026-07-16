@@ -73,6 +73,15 @@ byte-compilation, then asks a separate critic to approve the diff. The final
 authority boundary is intentional: Forge0 pushes an `agent/` branch and opens
 a draft PR, but it never merges or deploys its own work.
 
+An optional `## File Scope` section in the issue body restricts which files
+the planner may modify. Paths are repository-relative, backtick-wrapped bullets
+(listed one per line) terminated by the next heading. The scope is validated
+before any planner call: malformed, empty, duplicate, protected, outside the
+allowlist, or over-limit entries are rejected. When present, the planner must
+choose a subset of the declared files; any file outside the scope is rejected
+before implementation. Issues without a `File Scope` section retain the
+current behavior and configured global boundaries.
+
 A signed Gitea webhook normally starts the run. An operator can also trigger
 an eligible issue using the generated secret:
 

@@ -523,10 +523,52 @@ class DogfoodService:
         if self.config.trigger_label not in labels:
             raise DogfoodError(f"Issue must have the {self.config.trigger_label} label")
         body = issue.get("body") or ""
-        if not re.search(r"(?im)^#{1,3}\s+acceptance criteria\s*$", body):
-            raise DogfoodError("Issue must contain an Acceptance Criteria heading")
         if len(body) > 20_000:
             raise DogfoodError("Issue body exceeds the maximum size")
+        if not re.search(r"(?im)^#{1,3}\s+acceptance criteria\s*$", body):
+            raise DogfoodError("Issue must contain an Acceptance Criteria heading")
+        self._issue_file_scope(issue)
+
+    def _issue_file_scope(self, issue: dict[str, Any]) -> set[str] | None:
+        """Parse and validate an optional issue-level file allowlist."""
+        body = str(issue.get("body") or "")
+        lines = body.splitlines()
+        headings = [
+            index
+            for index, line in enumerate(lines)
+            if re.fullmatch(r"#{1,3}\s+file scope\s*", line, flags=re.IGNORECASE)
+        ]
+        if not headings:
+            return None
+        if len(headings) != 1:
+            raise DogfoodError("Issue must contain at most one File Scope heading")
+
+        declared: list[str] = []
+        for line in lines[headings[0] + 1 :]:
+            if re.match(r"^#{1,6}\s+", line):
+                break
+            if not line.strip():
+                continue
+            match = re.fullmatch(r"\s*[-*+]\s+`([^`]+)`\s*", line)
+            if match is None:
+                raise DogfoodError("File Scope entries must be backtick-wrapped Markdown bullets")
+            path = match.group(1)
+            if path != path.strip() or path != str(PurePosixPath(path)):
+                raise DogfoodError("File Scope paths must use canonical repository-relative form")
+            declared.append(path)
+
+        if not declared:
+            raise DogfoodError("File Scope must declare at least one path")
+        if len(declared) > self.config.max_changed_files:
+            raise DogfoodError("File Scope exceeded the changed-file limit")
+        if len(set(declared)) != len(declared):
+            raise DogfoodError("File Scope contains duplicate paths")
+
+        scope = set(declared)
+        applier = ChangeApplier(Path("."), self.config, scope)
+        for path in scope:
+            applier._resolve(path)
+        return scope
 
     async def _execute(self, record: RunRecord, issue: dict[str, Any]) -> None:
         workspace: GitWorkspace | None = None
@@ -542,6 +584,7 @@ class DogfoodService:
 
             client = LLMClient(LLMConfig.from_env())
             context = self._repository_context(workspace.repo_path)
+            file_scope = self._issue_file_scope(issue)
             record.status = RunStatus.PLANNING
             self.store.save(record)
             plan = await self._json_completion(
@@ -557,9 +600,9 @@ class DogfoodService:
                 model="planner",
                 temperature=0.1,
                 max_tokens=8000,
-                validate=self._validate_plan,
+                validate=lambda candidate: self._validate_plan(candidate, file_scope),
             )
-            planned_files = self._validate_plan(plan)
+            planned_files = self._validate_plan(plan, file_scope)
             record.plan = plan
             self.store.save(record)
 
@@ -857,13 +900,16 @@ class DogfoodService:
             parts.append(f'<file path={json.dumps(name)}>\n{content}\n</file>')
         return "\n\n".join(parts)
 
-    def _validate_plan(self, plan: dict[str, Any]) -> set[str]:
+    def _validate_plan(self, plan: dict[str, Any], file_scope: set[str] | None = None) -> set[str]:
         files = plan.get("files")
         if not isinstance(files, list) or not files:
             raise DogfoodError("Planner response did not identify files")
         if len(files) > self.config.max_changed_files:
             raise DogfoodError("Planner exceeded the changed-file limit")
         planned = {str(path) for path in files}
+        if file_scope is not None and not planned.issubset(file_scope):
+            escaped = ", ".join(sorted(planned - file_scope))
+            raise DogfoodError(f"Planner selected files outside the issue File Scope: {escaped}")
         applier = ChangeApplier(Path("."), self.config, planned)
         for path in planned:
             applier._resolve(path)
@@ -1006,7 +1052,8 @@ class DogfoodService:
             "You are Forge0's planning agent. Produce only JSON with keys summary (string), files (array of exact "
             "repository-relative paths), acceptance_checks (array), and risks (array). Choose at most five files. "
             "Map every acceptance criterion to a selected implementation or test file, and do not select files that "
-            "need no change. Do not select secrets, data/, .git/, deployment credentials, or files outside the "
+            "need no change. If the issue declares a File Scope section, it is authoritative and every selected file "
+            "must be within it. Do not select secrets, data/, .git/, deployment credentials, or files outside the "
             "supplied repository map."
         )
 
