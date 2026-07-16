@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- make sign-in failures recoverable
 - use Gitea identity across portal
 - render project docs and report outages
 - rebuild the user experience
@@ -66,6 +67,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - prove atomic multi-region editing
