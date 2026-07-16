@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- discover recurring failures
 - add immutable portal release gates
 - supervise durable queued runs
 - ground critic reviews in evidence spans
@@ -80,6 +81,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
