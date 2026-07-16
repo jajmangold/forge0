@@ -39,6 +39,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- isolate writable release state
 - enforce per-file target assignment
 - create planned files before integration
 - normalize mixed replacement batches
@@ -78,6 +79,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - document durable self-extension recovery behavior
 - refresh generated documentation
