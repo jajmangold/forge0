@@ -678,7 +678,7 @@ class DogfoodService:
             )
             planned_files = self._validate_run_plan(plan, file_scope, workspace.repo_path)
             evidence_files = self._validate_evidence_files(plan, workspace.repo_path)
-            evidence_context = self._planned_file_context(
+            evidence_context = self._evidence_file_context(
                 workspace.repo_path, evidence_files, max_chars=60_000
             )
             record.plan = plan
@@ -1112,6 +1112,56 @@ class DogfoodService:
             if total > max_chars:
                 raise DogfoodError("File context exceeds the safety limit")
             parts.append(f"<file path={json.dumps(name)}>\n{content}\n</file>")
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _bounded_excerpt(content: str, max_chars: int) -> str:
+        if len(content) <= max_chars:
+            return content
+        marker = "\n... [bounded evidence excerpt omitted middle content] ...\n"
+        if len(marker) >= max_chars:
+            return marker[:max_chars]
+        available = max_chars - len(marker)
+        head_chars = (available + 1) // 2
+        tail_chars = available - head_chars
+        tail = content[-tail_chars:] if tail_chars else ""
+        return content[:head_chars] + marker + tail
+
+    def _evidence_file_context(
+        self, root: Path, files: set[str], *, max_chars: int = 60_000
+    ) -> str:
+        """Render complete small evidence files and bounded head/tail excerpts of large ones."""
+        names = sorted(files)
+        contents = {name: (root / name).read_text(errors="replace") for name in names}
+        wrappers = {
+            name: (f"<evidence-file path={json.dumps(name)}>\n", "\n</evidence-file>")
+            for name in names
+        }
+        overhead = sum(len(prefix) + len(suffix) for prefix, suffix in wrappers.values())
+        overhead += max(0, len(names) - 1) * 2
+        if overhead > max_chars:
+            raise DogfoodError("Evidence file metadata exceeds the safety limit")
+
+        remaining_budget = max_chars - overhead
+        remaining = set(names)
+        quotas: dict[str, int] = {}
+        while remaining:
+            share, extra = divmod(remaining_budget, len(remaining))
+            complete = [name for name in sorted(remaining) if len(contents[name]) <= share]
+            if not complete:
+                for index, name in enumerate(sorted(remaining)):
+                    quotas[name] = share + (1 if index < extra else 0)
+                break
+            for name in complete:
+                quotas[name] = len(contents[name])
+                remaining_budget -= quotas[name]
+                remaining.remove(name)
+
+        parts = []
+        for name in names:
+            prefix, suffix = wrappers[name]
+            excerpt = self._bounded_excerpt(contents[name], quotas[name])
+            parts.append(prefix + excerpt + suffix)
         return "\n\n".join(parts)
 
     def _validate_plan(self, plan: dict[str, Any], file_scope: set[str] | None = None) -> set[str]:

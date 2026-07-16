@@ -359,6 +359,28 @@ def test_plan_evidence_files_are_bounded_existing_and_read_only(tmp_path) -> Non
         )
 
 
+def test_evidence_context_bounds_oversized_files_without_dropping_sources(tmp_path) -> None:
+    large = tmp_path / "portal/app/dogfood.py"
+    large.parent.mkdir(parents=True)
+    large.write_text("HEAD\n" + ("x" * 500) + "\nTAIL")
+    small = tmp_path / "portal/app/critic_findings.py"
+    small.write_text("complete small evidence")
+    service = DogfoodService(config(tmp_path))
+
+    context = service._evidence_file_context(
+        tmp_path,
+        {"portal/app/dogfood.py", "portal/app/critic_findings.py"},
+        max_chars=300,
+    )
+
+    assert len(context) <= 300
+    assert '<evidence-file path="portal/app/critic_findings.py">' in context
+    assert "complete small evidence" in context
+    assert '<evidence-file path="portal/app/dogfood.py">' in context
+    assert "HEAD" in context and "TAIL" in context
+    assert "bounded evidence excerpt omitted" in context
+
+
 def test_critic_prompt_requires_evidence_grounding() -> None:
     prompt = DogfoodService._critic_system_prompt()
     planner = DogfoodService._planner_system_prompt()
