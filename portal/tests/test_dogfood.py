@@ -753,6 +753,45 @@ async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_critic_quote_correction_requires_verbatim_diff_text(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path))
+    record = RunRecord(
+        id="critic-quote-correction",
+        owner="agent",
+        repo="forge0",
+        issue_number=10,
+        issue_title="Critic quote",
+    )
+    client = AsyncMock()
+    client.chat_with_usage.side_effect = [
+        ChatResult(content='{"attempt": 1}', usage={"total_tokens": 4}),
+        ChatResult(content='{"attempt": 2}', usage={"total_tokens": 4}),
+    ]
+
+    def validate(candidate):
+        if candidate["attempt"] == 1:
+            raise DogfoodError(
+                "Invalid critic response: acceptance_reviews[0].evidence is not an exact supplied quote"
+            )
+        return candidate
+
+    result = await service._json_completion(
+        client,
+        record,
+        messages=[{"role": "user", "content": "Complete diff:\n+def helper():"}],
+        model="critic",
+        temperature=0.0,
+        max_tokens=100,
+        validate=validate,
+    )
+
+    assert result == {"attempt": 2}
+    retry_prompt = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
+    assert "consecutive characters verbatim" in retry_prompt
+    assert "Preserve leading diff markers" in retry_prompt
+
+
+@pytest.mark.asyncio
 async def test_structured_completion_retries_truncated_response(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     record = RunRecord(id="trunc-run", owner="agent", repo="forge0", issue_number=11, issue_title="Truncated")

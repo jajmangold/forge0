@@ -1425,6 +1425,12 @@ class DogfoodService:
                     "\n\nYour previous response was rejected without taking any action. "
                     f"Correct this error and return one complete valid JSON object only: {correction}"
                 )
+                if "evidence is not an exact supplied quote" in correction:
+                    attempt_messages[-1]["content"] += (
+                        " For every acceptance review, copy 1-500 consecutive characters verbatim from the "
+                        "supplied diff or read-only evidence. Preserve leading diff markers (+ or -), indentation, "
+                        "capitalization, punctuation, and whitespace; never paraphrase or describe the quote."
+                    )
             result = await client.chat_with_usage(
                 messages=attempt_messages,
                 model=model,
