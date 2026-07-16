@@ -57,6 +57,12 @@ as deployed on canonical main.
   agent never applies a model-supplied raw diff.
 - **Truncation handling.** Token-limit completion signals are rejected and
   retried with a request for a complete, more concise structured response.
+- **Token-budget admission.** Before every planner, coder, repair, or critic
+  call, Forge0 conservatively estimates prompt tokens and reserves a minimally
+  usable completion; the requested completion is capped to the estimated
+  remaining run budget and a call is refused before provider invocation when
+  it cannot fit. Provider-reported usage remains authoritative after each
+  admitted call and still fails a run if the configured budget is exceeded.
 - **Path-aware coverage reporting.** The fixed repository suite still runs, while
   changed paths are classified as Python-covered, documentation review-only, or
   unsupported and requiring explicit manual acceptance. Repository-level health
