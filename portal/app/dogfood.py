@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -140,6 +141,7 @@ class RunRecord:
     plan: dict[str, Any] = field(default_factory=dict)
     changed_files: list[str] = field(default_factory=list)
     verification: list[dict[str, Any]] = field(default_factory=list)
+    verification_coverage: dict[str, list[str]] = field(default_factory=dict)
     critic_feedback: str = ""
     critic_repair_count: int = 0
     correction_errors: list[str] = field(default_factory=list)
@@ -350,6 +352,24 @@ class ChangeApplier:
             raise DogfoodError(f"Generated content resembles a secret: {path}")
 
 
+def classify_verification_coverage(changed_files: list[str]) -> dict[str, list[str]]:
+    """Classify paths against the fixed, operator-owned verification suite."""
+    coverage: dict[str, list[str]] = {
+        "automated": [],
+        "review_only": [],
+        "manual": [],
+    }
+    for path in sorted(set(changed_files)):
+        suffix = PurePosixPath(path).suffix.lower()
+        if path.startswith("portal/") and suffix == ".py":
+            coverage["automated"].append(path)
+        elif path == "README.md" or path.startswith("docs/") or suffix in {".md", ".rst"}:
+            coverage["review_only"].append(path)
+        else:
+            coverage["manual"].append(path)
+    return coverage
+
+
 class GitWorkspace:
     """Disposable authenticated clone used for a single run."""
 
@@ -408,7 +428,10 @@ class GitWorkspace:
         )
         return names, lines, diff
 
-    async def verify(self) -> list[dict[str, Any]]:
+    async def verify(
+        self, changed_files: list[str]
+    ) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+        coverage = classify_verification_coverage(changed_files)
         commands = (
             ("pytest", "-q"),
             ("ruff", "check", "."),
@@ -423,7 +446,7 @@ class GitWorkspace:
             except DogfoodError as exc:
                 results.append({"command": " ".join(command), "success": False, "output": str(exc)[-4000:]})
                 break
-        return results
+        return results, coverage
 
     async def commit_and_push(self, message: str, branch: str) -> str:
         await self._git("commit", "-m", message)
@@ -704,7 +727,7 @@ class DogfoodService:
 
             record.status = RunStatus.VERIFYING
             self.store.save(record)
-            record.verification = await workspace.verify()
+            record.verification, record.verification_coverage = await workspace.verify(staged_files)
             self.store.save(record)
             failed_check = next((item for item in record.verification if not item["success"]), None)
             if failed_check is not None:
@@ -863,7 +886,7 @@ class DogfoodService:
         # Re-run all verification commands after repair
         record.status = RunStatus.VERIFYING
         self.store.save(record)
-        record.verification = await workspace.verify()
+        record.verification, record.verification_coverage = await workspace.verify(staged_files)
         self.store.save(record)
         failed_check = next((item for item in record.verification if not item["success"]), None)
         if failed_check is not None:
@@ -1155,6 +1178,30 @@ class DogfoodService:
         checks = "\n".join(
             f"- [{'x' if item['success'] else ' '}] `{item['command']}`" for item in record.verification
         )
+        coverage = record.verification_coverage
+
+        def path_item(path: str, description: str, checked: bool = False) -> str:
+            safe_path = html.escape(path, quote=False).replace("`", "&#96;").replace("\n", " ")
+            return f"- [{'x' if checked else ' '}] `{safe_path}` — {description}"
+
+        acceptance_items = [
+            path_item(path, "covered by the fixed Python verification suite", checked=True)
+            for path in coverage.get("automated", [])
+        ]
+        acceptance_items.extend(
+            path_item(path, "documentation review only; no extra toolchain required")
+            for path in coverage.get("review_only", [])
+        )
+        acceptance = "\n".join(acceptance_items) or "No automatically covered or review-only paths recorded."
+        manual_items = [
+            path_item(path, "no operator-allowlisted automated verifier is available")
+            for path in coverage.get("manual", [])
+        ]
+        manual = "\n".join(manual_items) or "No uncovered implementation paths."
+        safe_changed_files = ", ".join(
+            f"`{html.escape(name, quote=False).replace('`', '&#96;').replace(chr(10), ' ')}`"
+            for name in record.changed_files
+        )
         requested_body = str(implementation.get("pr_body", "")).strip()[:8000]
         return (
             "## Summary\n\n"
@@ -1165,9 +1212,11 @@ class DogfoodService:
             f"- Run: `{record.id}`\n"
             f"- Issue: #{record.issue_number}\n"
             f"- Commit: `{sha}`\n"
-            f"- Files: {', '.join(f'`{name}`' for name in record.changed_files)}\n"
+            f"- Files: {safe_changed_files}\n"
             f"- Critic: {record.critic_feedback}\n\n"
-            f"## Verification\n\n{checks}\n\n"
+            f"## Automated repository checks\n\n{checks}\n\n"
+            f"## Acceptance coverage\n\n{acceptance}\n\n"
+            f"## Manual acceptance required\n\n{manual}\n\n"
             "This pull request is intentionally a draft and requires human approval.\n\n"
             f"<!-- forge0-run:{record.id} -->"
         )

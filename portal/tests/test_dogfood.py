@@ -18,6 +18,7 @@ from app.dogfood import (
     RunRecord,
     RunStatus,
     RunStore,
+    classify_verification_coverage,
 )
 from app.llm_client import ChatResult
 from fastapi.testclient import TestClient
@@ -579,7 +580,7 @@ async def test_verification_returns_failure_output_for_persistence(tmp_path) -> 
     workspace.repo_path.mkdir(parents=True)
 
     with patch.object(workspace, "_run", new=AsyncMock(side_effect=DogfoodError("test output"))):
-        results = await workspace.verify()
+        results, coverage = await workspace.verify(["kernels/example.cu"])
 
     assert results == [
         {
@@ -588,6 +589,107 @@ async def test_verification_returns_failure_output_for_persistence(tmp_path) -> 
             "output": "test output",
         }
     ]
+    assert coverage == {
+        "automated": [],
+        "review_only": [],
+        "manual": ["kernels/example.cu"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("paths", "expected"),
+    [
+        (
+            ["portal/tests/test_dogfood.py", "portal/app/dogfood.py"],
+            {
+                "automated": ["portal/app/dogfood.py", "portal/tests/test_dogfood.py"],
+                "review_only": [],
+                "manual": [],
+            },
+        ),
+        (
+            ["README.md", "docs/implementation-status.md"],
+            {
+                "automated": [],
+                "review_only": ["README.md", "docs/implementation-status.md"],
+                "manual": [],
+            },
+        ),
+        (
+            ["kernels/rrc/kernel.cu"],
+            {"automated": [], "review_only": [], "manual": ["kernels/rrc/kernel.cu"]},
+        ),
+        (
+            ["README.md", "portal/app/dogfood.py", "setup.sh"],
+            {
+                "automated": ["portal/app/dogfood.py"],
+                "review_only": ["README.md"],
+                "manual": ["setup.sh"],
+            },
+        ),
+    ],
+)
+def test_verification_coverage_is_deterministic(paths, expected) -> None:
+    assert classify_verification_coverage(paths) == expected
+    assert classify_verification_coverage(list(reversed(paths))) == expected
+
+
+def test_run_record_loads_without_verification_coverage() -> None:
+    old_data = RunRecord(
+        id="old-run",
+        owner="agent",
+        repo="forge0",
+        issue_number=1,
+        issue_title="Old run",
+    ).to_dict()
+    old_data.pop("verification_coverage")
+
+    assert RunRecord.from_dict(old_data).verification_coverage == {}
+
+
+def test_pull_body_separates_checks_and_manual_coverage() -> None:
+    record = RunRecord(
+        id="coverage-run",
+        owner="agent",
+        repo="forge0",
+        issue_number=16,
+        issue_title="Coverage",
+        changed_files=["portal/app/dogfood.py", "README.md", "kernels/<unsafe>`name.cu"],
+        verification=[{"command": "pytest -q", "success": True, "output": ""}],
+        verification_coverage={
+            "automated": ["portal/app/dogfood.py"],
+            "review_only": ["README.md"],
+            "manual": ["kernels/<unsafe>`name.cu"],
+        },
+    )
+
+    body = DogfoodService._pull_body(record, {"pr_body": "Bounded change"}, "abc123")
+
+    assert "## Automated repository checks\n\n- [x] `pytest -q`" in body
+    assert "## Acceptance coverage" in body
+    assert "documentation review only; no extra toolchain required" in body
+    assert "## Manual acceptance required" in body
+    assert "no operator-allowlisted automated verifier is available" in body
+    assert "<unsafe>" not in body
+    assert "&lt;unsafe&gt;&#96;name.cu" in body
+
+
+def test_pull_body_has_no_manual_toolchain_claim_for_docs_only() -> None:
+    record = RunRecord(
+        id="docs-run",
+        owner="agent",
+        repo="forge0",
+        issue_number=16,
+        issue_title="Docs",
+        changed_files=["README.md"],
+        verification=[],
+        verification_coverage={"automated": [], "review_only": ["README.md"], "manual": []},
+    )
+
+    body = DogfoodService._pull_body(record, {}, "abc123")
+
+    assert "documentation review only; no extra toolchain required" in body
+    assert "## Manual acceptance required\n\nNo uncovered implementation paths." in body
 
 
 def repair_workspace(tmp_path, cfg: DogfoodConfig, *, verification_success: bool = True) -> GitWorkspace:
@@ -596,13 +698,16 @@ def repair_workspace(tmp_path, cfg: DogfoodConfig, *, verification_success: bool
     (workspace.repo_path / "README.md").write_text("before\n")
     workspace.stage_and_measure = AsyncMock(return_value=(["README.md"], 2, "complete diff"))
     workspace.verify = AsyncMock(
-        return_value=[
-            {
-                "command": "pytest -q",
-                "success": verification_success,
-                "output": "" if verification_success else "failure details",
-            }
-        ]
+        return_value=(
+            [
+                {
+                    "command": "pytest -q",
+                    "success": verification_success,
+                    "output": "" if verification_success else "failure details",
+                }
+            ],
+            {"automated": [], "review_only": ["README.md"], "manual": []},
+        )
     )
     return workspace
 
