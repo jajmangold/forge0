@@ -694,9 +694,7 @@ class DogfoodService:
             )
             record.critic_feedback = str(review.get("feedback", ""))[:4000]
             if review.get("pass") is not True:
-                # Check if repair is allowed
                 if record.critic_repair_count < self.config.max_critic_repairs:
-                    # Perform repair pass
                     await self._repair_pass(
                         record, workspace, client, issue, plan, planned_files, implementation
                     )
@@ -799,7 +797,6 @@ class DogfoodService:
                         raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
                     changed = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
                     new_applied.extend(changed)
-                    # Update implementation with repair data if needed
                     if not implementation.get("pr_body"):
                         implementation["pr_body"] = file_implementation.get("pr_body", "")
                     break
@@ -855,9 +852,7 @@ class DogfoodService:
         )
         record.critic_feedback = str(review.get("feedback", ""))[:4000]
         if review.get("pass") is not True:
-            # Check if another repair is allowed
             if record.critic_repair_count < self.config.max_critic_repairs:
-                # Perform another repair pass (recursive call)
                 await self._repair_pass(
                     record, workspace, client, issue, plan, planned_files, implementation
                 )
@@ -898,7 +893,7 @@ class DogfoodService:
             total += len(content)
             if total > 120_000:
                 raise DogfoodError("Planned file context exceeds the safety limit")
-            parts.append(f'<file path={json.dumps(name)}>\n{content}\n</file>')
+            parts.append(f"<file path={json.dumps(name)}>\n{content}\n</file>")
         return "\n\n".join(parts)
 
     def _validate_plan(self, plan: dict[str, Any], file_scope: set[str] | None = None) -> set[str]:
@@ -1091,8 +1086,7 @@ class DogfoodService:
             prompt += f"\n\nReturn exactly one change, for this target path only: {target_file}"
         if critic_feedback:
             prompt += (
-                "\n\nCritic feedback on previous implementation:\n" +
-                critic_feedback +
+                f"\n\nCritic feedback on previous implementation:\n{critic_feedback}"
                 "\n\nYou must address this feedback in your response."
             )
         if correction:
