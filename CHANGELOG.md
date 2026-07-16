@@ -77,6 +77,8 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- document durable self-extension recovery behavior
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
