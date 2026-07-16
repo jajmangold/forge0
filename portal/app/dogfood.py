@@ -277,7 +277,7 @@ class ChangeApplier:
                 if current.count(old) != 1:
                     raise DogfoodError(f"Replace block must match exactly once: {path}")
                 updated = current.replace(old, new, 1)
-                self._validate_content(path, updated)
+                self._validate_content(path, updated, existing_content=current)
                 prepared.append((path, destination, updated))
             elif operation == "rewrite":
                 if not destination.is_file():
@@ -285,7 +285,7 @@ class ChangeApplier:
                 content = change.get("content")
                 if not isinstance(content, str) or not content:
                     raise DogfoodError(f"Rewrite requires complete non-empty content: {path}")
-                self._validate_content(path, content)
+                self._validate_content(path, content, existing_content=destination.read_text())
                 prepared.append((path, destination, content))
             else:
                 raise DogfoodError(f"Unsupported operation for {path}: {operation}")
@@ -295,10 +295,10 @@ class ChangeApplier:
             destination.write_text(content)
         return changed
 
-    def _validate_content(self, path: str, content: str) -> None:
+    def _validate_content(self, path: str, content: str, *, existing_content: str = "") -> None:
         if len(content.encode()) > self.config.max_file_bytes:
             raise DogfoodError(f"Generated file exceeds the size limit: {path}")
-        if any(marker in content for marker in self._secret_markers):
+        if any(marker in content and marker not in existing_content for marker in self._secret_markers):
             raise DogfoodError(f"Generated content resembles a secret: {path}")
 
 

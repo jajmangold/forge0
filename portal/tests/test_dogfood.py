@@ -103,6 +103,17 @@ def test_change_applier_rewrites_one_planned_existing_file(tmp_path) -> None:
     assert target.read_text() == "complete replacement\n"
 
 
+def test_rewrite_can_preserve_but_not_introduce_secret_markers(tmp_path) -> None:
+    marker = "-----BEGIN PRIVATE KEY-----"
+    target = tmp_path / "README.md"
+    target.write_text(f"detector = {marker!r}\n")
+    applier = ChangeApplier(tmp_path, config(tmp_path), {"README.md", "docs/new.md"})
+
+    applier.apply([{"path": "README.md", "operation": "rewrite", "content": f"kept = {marker!r}\n"}])
+    with pytest.raises(DogfoodError, match="resembles a secret"):
+        applier.apply([{"path": "docs/new.md", "operation": "create", "content": marker}])
+
+
 @pytest.mark.parametrize("path", ["../secret", ".env", "outside.txt", "/tmp/file"])
 def test_change_applier_rejects_unsafe_paths(tmp_path, path: str) -> None:
     applier = ChangeApplier(tmp_path, config(tmp_path), {path})
