@@ -16,7 +16,7 @@
       <div><h2 id="runs-title">Recent runs</h2><div class="panel-subtitle">Newest activity first</div></div>
       <span class="badge">{{ runs|length }}</span>
     </div>
-    <div id="runs-table" hx-get="/partials/runs" hx-trigger="every 10s" hx-swap="innerHTML">
+    <div id="runs-table" data-refresh-url="/partials/runs" data-refresh-interval="10000">
       {% include "_runs.html" %}
     </div>
   </section>

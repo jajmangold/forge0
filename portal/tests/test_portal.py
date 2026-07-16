@@ -73,7 +73,9 @@ def test_dashboard_renders_usable_navigation_and_compact_metrics() -> None:
     assert 'aria-label="Primary navigation"' in response.text
     assert 'id="commandPalette"' in response.text
     assert 'id="connectionNotice"' in response.text
-    assert "htmx:responseError" in response.text
+    assert 'data-refresh-url="/partials/stats"' in response.text
+    assert "unpkg.com/htmx" not in response.text
+    assert "await fetch(element.dataset.refreshUrl" in response.text
     assert "Build, review, and ship with context." in response.text
     assert 'class="stats"' in response.text
 

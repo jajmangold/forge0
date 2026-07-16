@@ -6,7 +6,6 @@
   <meta name="color-scheme" content="dark light">
   <title>{% block title %}Forge0{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
@@ -166,11 +165,26 @@
       serviceStatusDot.classList.toggle('offline', !connected);
       serviceStatusText.textContent = connected ? 'Services ready' : 'Connection interrupted';
     }
-    ['htmx:sendError', 'htmx:responseError', 'htmx:timeout'].forEach(name => {
-      document.body.addEventListener(name, () => setConnectionState(false));
-    });
-    document.body.addEventListener('htmx:afterRequest', event => {
-      if (event.detail.successful) setConnectionState(true);
+    document.querySelectorAll('[data-refresh-url]').forEach(element => {
+      const interval = Number(element.dataset.refreshInterval || 10000);
+      let refreshing = false;
+      async function refresh() {
+        if (refreshing || document.hidden) return;
+        refreshing = true;
+        try {
+          const response = await fetch(element.dataset.refreshUrl, {
+            headers: {'X-Requested-With': 'Forge0LiveRefresh'}
+          });
+          if (!response.ok) throw new Error(`Refresh failed: ${response.status}`);
+          element.innerHTML = await response.text();
+          setConnectionState(true);
+        } catch (_error) {
+          setConnectionState(false);
+        } finally {
+          refreshing = false;
+        }
+      }
+      window.setInterval(refresh, Math.max(interval, 3000));
     });
     document.addEventListener('keydown', event => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {

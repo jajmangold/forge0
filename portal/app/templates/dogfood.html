@@ -45,7 +45,7 @@
       <div><h2 id="dogfood-runs-title">Recent runs</h2><div class="panel-subtitle">Live status, newest first · refreshes every 5 seconds</div></div>
       <span class="badge">{{ runs|length }}</span>
     </div>
-    <div id="dogfood-runs" hx-get="/partials/dogfood-runs" hx-trigger="every 5s" hx-swap="innerHTML">
+    <div id="dogfood-runs" data-refresh-url="/partials/dogfood-runs" data-refresh-interval="5000">
       {% include "_dogfood_runs.html" %}
     </div>
   </section>

@@ -16,7 +16,7 @@
   </div>
 
   <div class="stats-bar" id="stats-bar" aria-label="Workspace metrics"
-       hx-get="/partials/stats" hx-trigger="every 8s" hx-swap="innerHTML">
+       data-refresh-url="/partials/stats" data-refresh-interval="8000">
     {% include "_stats.html" %}
   </div>
 
@@ -28,7 +28,7 @@
       </div>
       <span class="badge">{{ repos|length }}</span>
     </div>
-    <div id="repos-grid" hx-get="/partials/repos" hx-trigger="every 15s" hx-swap="innerHTML">
+    <div id="repos-grid" data-refresh-url="/partials/repos" data-refresh-interval="15000">
       {% include "_repos.html" %}
     </div>
   </section>
