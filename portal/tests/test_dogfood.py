@@ -91,6 +91,18 @@ def test_change_applier_only_changes_planned_allowlisted_files(tmp_path) -> None
     assert (tmp_path / "docs/new.md").read_text() == "new\n"
 
 
+def test_change_applier_rewrites_one_planned_existing_file(tmp_path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("before\n")
+
+    changed = ChangeApplier(tmp_path, config(tmp_path), {"README.md"}).apply(
+        [{"path": "README.md", "operation": "rewrite", "content": "complete replacement\n"}]
+    )
+
+    assert changed == ["README.md"]
+    assert target.read_text() == "complete replacement\n"
+
+
 @pytest.mark.parametrize("path", ["../secret", ".env", "outside.txt", "/tmp/file"])
 def test_change_applier_rejects_unsafe_paths(tmp_path, path: str) -> None:
     applier = ChangeApplier(tmp_path, config(tmp_path), {path})

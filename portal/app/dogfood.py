@@ -279,6 +279,14 @@ class ChangeApplier:
                 updated = current.replace(old, new, 1)
                 self._validate_content(path, updated)
                 prepared.append((path, destination, updated))
+            elif operation == "rewrite":
+                if not destination.is_file():
+                    raise DogfoodError(f"Rewrite target does not exist: {path}")
+                content = change.get("content")
+                if not isinstance(content, str) or not content:
+                    raise DogfoodError(f"Rewrite requires complete non-empty content: {path}")
+                self._validate_content(path, content)
+                prepared.append((path, destination, content))
             else:
                 raise DogfoodError(f"Unsupported operation for {path}: {operation}")
             changed.append(path)
@@ -854,8 +862,11 @@ class DogfoodService:
             "You are Forge0's implementation agent. Return only one JSON object with commit_message, pr_title, "
             "pr_body, and changes. Use exactly these change schemas: "
             '{"path":"new.txt","operation":"create","content":"complete file text"} or '
-            '{"path":"existing.py","operation":"replace","old":"exact existing block","new":"replacement block"}. '
+            '{"path":"existing.py","operation":"replace","old":"exact existing block","new":"replacement block"} or '
+            '{"path":"existing.py","operation":"rewrite","content":"complete replacement file text"}. '
             "Do not use content, patch, old_content, or new_content for a replace operation. Only touch planned files. "
+            "Use rewrite when one existing file needs multiple non-contiguous edits, and preserve all unrelated "
+            "content. "
             "Never include secrets, generated "
             "credentials, binary data, shell payloads, or deployment actions. Keep the patch small and testable."
         )
@@ -881,6 +892,8 @@ class DogfoodService:
                 f"Correct this validation error and return a complete replacement response: {correction}. "
                 "A file whose supplied content is <new file> must use operation=create with content. Only an existing "
                 "file may use operation=replace with keys named exactly old and new, both containing non-empty strings."
+                " If an existing file needs multiple non-contiguous edits, return one operation=rewrite change with "
+                "its complete replacement content."
             )
         return prompt
 
