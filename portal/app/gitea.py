@@ -62,6 +62,14 @@ async def get_readme(owner: str, name: str) -> str | None:
             import base64
             data = r.json()
             return base64.b64decode(data.get("content", "")).decode(errors="replace")
+    # Older Gitea versions may not expose /readme even when the file exists.
+    for candidate in ("README.md", "README", "README.rst", "README.txt"):
+        try:
+            content = await get_file_content(owner, name, candidate)
+        except httpx.HTTPError:
+            continue
+        if content is not None:
+            return content
     return None
 
 

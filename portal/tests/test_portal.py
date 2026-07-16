@@ -2,9 +2,10 @@
 
 import subprocess
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from app import gitea
 from app.coordination import AgentCoordinator, AgentLock, AgentRole, TaskStatus
 from app.main import app
 from app.rollback import RollbackManager, SafeCodeChanger
@@ -108,6 +109,20 @@ def test_repository_failure_uses_safe_app_shell_error() -> None:
     assert "Repository not found" in response.text
     assert "sensitive upstream detail" not in response.text
     assert 'aria-label="Primary navigation"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_readme_falls_back_to_common_file_when_endpoint_is_missing() -> None:
+    missing = Mock(status_code=404)
+    with (
+        patch("app.gitea.httpx.AsyncClient") as client_class,
+        patch("app.gitea.get_file_content", new=AsyncMock(return_value="# Project\n")) as content,
+    ):
+        client_class.return_value.__aenter__.return_value.get = AsyncMock(return_value=missing)
+        readme = await gitea.get_readme("owner", "repo")
+
+    assert readme == "# Project\n"
+    content.assert_awaited_once_with("owner", "repo", "README.md")
 
 
 def test_stuck_detector_catches_repeated_action() -> None:
