@@ -693,23 +693,26 @@ class DogfoodService:
                 file_context = self._planned_file_context(workspace.repo_path, {target_file})
                 correction = ""
                 for attempt in range(3):
+                    implementation_messages = [
+                        {"role": "system", "content": self._coder_system_prompt()},
+                        {
+                            "role": "user",
+                            "content": self._implementation_prompt(
+                                issue,
+                                plan,
+                                file_context,
+                                correction,
+                                target_file=target_file,
+                            ),
+                        },
+                    ]
                     code_result = await client.chat_with_usage(
-                        messages=[
-                            {"role": "system", "content": self._coder_system_prompt()},
-                            {
-                                "role": "user",
-                                "content": self._implementation_prompt(
-                                    issue,
-                                    plan,
-                                    file_context,
-                                    correction,
-                                    target_file=target_file,
-                                ),
-                            },
-                        ],
+                        messages=implementation_messages,
                         model=self.config.coder_model,
                         temperature=0.1,
-                        max_tokens=20_000,
+                        max_tokens=self._bounded_completion_tokens(
+                            record, implementation_messages, 20_000
+                        ),
                         response_format={"type": "json_object"},
                     )
                     self._add_usage(record, code_result.usage)
@@ -875,24 +878,25 @@ class DogfoodService:
             file_context = self._planned_file_context(workspace.repo_path, {target_file})
             correction = ""
             for attempt in range(3):
+                repair_messages = [
+                    {"role": "system", "content": self._coder_system_prompt()},
+                    {
+                        "role": "user",
+                        "content": self._implementation_prompt(
+                            issue,
+                            plan,
+                            file_context,
+                            correction,
+                            target_file=target_file,
+                            verification_diagnostic=diagnostic,
+                        ),
+                    },
+                ]
                 result = await client.chat_with_usage(
-                    messages=[
-                        {"role": "system", "content": self._coder_system_prompt()},
-                        {
-                            "role": "user",
-                            "content": self._implementation_prompt(
-                                issue,
-                                plan,
-                                file_context,
-                                correction,
-                                target_file=target_file,
-                                verification_diagnostic=diagnostic,
-                            ),
-                        },
-                    ],
+                    messages=repair_messages,
                     model=self.config.coder_model,
                     temperature=0.1,
-                    max_tokens=20_000,
+                    max_tokens=self._bounded_completion_tokens(record, repair_messages, 20_000),
                     response_format={"type": "json_object"},
                 )
                 self._add_usage(record, result.usage)
@@ -974,24 +978,25 @@ class DogfoodService:
             file_context = self._planned_file_context(workspace.repo_path, {target_file})
             correction = ""
             for attempt in range(3):
+                repair_messages = [
+                    {"role": "system", "content": self._coder_system_prompt()},
+                    {
+                        "role": "user",
+                        "content": self._implementation_prompt(
+                            issue,
+                            plan,
+                            file_context,
+                            correction,
+                            target_file=target_file,
+                            critic_feedback=repair_feedback,
+                        ),
+                    },
+                ]
                 code_result = await client.chat_with_usage(
-                    messages=[
-                        {"role": "system", "content": self._coder_system_prompt()},
-                        {
-                            "role": "user",
-                            "content": self._implementation_prompt(
-                                issue,
-                                plan,
-                                file_context,
-                                correction,
-                                target_file=target_file,
-                                critic_feedback=repair_feedback,
-                            ),
-                        },
-                    ],
+                    messages=repair_messages,
                     model=self.config.coder_model,
                     temperature=0.1,
-                    max_tokens=20_000,
+                    max_tokens=self._bounded_completion_tokens(record, repair_messages, 20_000),
                     response_format={"type": "json_object"},
                 )
                 self._add_usage(record, code_result.usage)
@@ -1221,6 +1226,25 @@ class DogfoodService:
             raise DogfoodError("Run exceeded its LLM token budget")
         self.store.save(record)
 
+    def _bounded_completion_tokens(
+        self, record: RunRecord, messages: list[dict[str, str]], requested: int
+    ) -> int:
+        """Conservatively admit a call without claiming an unavailable exact tokenizer."""
+        used = record.usage.get("total_tokens", 0)
+        remaining = self.config.token_budget - used
+        prompt_bytes = sum(
+            len(message.get("role", "").encode()) + len(message.get("content", "").encode())
+            for message in messages
+        )
+        estimated_prompt_tokens = (prompt_bytes + 2) // 3 + (64 * len(messages)) + 256
+        available_completion = remaining - estimated_prompt_tokens
+        minimum_completion = min(requested, 256)
+        if available_completion < minimum_completion:
+            raise DogfoodError(
+                "Run lacks enough estimated remaining LLM token budget for another bounded call"
+            )
+        return min(requested, available_completion)
+
     async def _json_completion(
         self,
         client: LLMClient,
@@ -1245,7 +1269,7 @@ class DogfoodService:
                 messages=attempt_messages,
                 model=model,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=self._bounded_completion_tokens(record, attempt_messages, max_tokens),
                 response_format={"type": "json_object"},
             )
             self._add_usage(record, result.usage)

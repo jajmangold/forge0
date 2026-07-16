@@ -517,6 +517,35 @@ async def test_stage_and_measure_preserves_bounded_diff_for_critic(tmp_path) -> 
 
 
 @pytest.mark.asyncio
+async def test_token_budget_preflight_caps_or_refuses_before_call(tmp_path) -> None:
+    service = DogfoodService(config(tmp_path, token_budget=2_000))
+    record = RunRecord(
+        id="budget-preflight",
+        owner="agent",
+        repo="forge0",
+        issue_number=9,
+        issue_title="Bound calls",
+        usage={"total_tokens": 1_000},
+    )
+    messages = [{"role": "user", "content": "x" * 600}]
+
+    assert service._bounded_completion_tokens(record, messages, 800) == 478
+
+    record.usage["total_tokens"] = 1_500
+    client = AsyncMock()
+    with pytest.raises(DogfoodError, match="estimated remaining LLM token budget"):
+        await service._json_completion(
+            client,
+            record,
+            messages=messages,
+            model="critic",
+            temperature=0.0,
+            max_tokens=800,
+        )
+    client.chat_with_usage.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     record = RunRecord(id="json-run", owner="agent", repo="forge0", issue_number=10, issue_title="JSON")
