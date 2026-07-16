@@ -392,6 +392,8 @@ def test_critic_prompt_requires_evidence_grounding() -> None:
     assert "evidence contradicts the concern" in prompt
     assert "source-line claims from the supplied diff" in prompt
     assert "evidence_files" in planner
+    assert "files and evidence_files arrays must be disjoint" in planner
+    assert "proposed diff is evidence" in planner
 
 
 def test_signed_webhook_selects_only_the_configured_ready_issue(tmp_path) -> None:

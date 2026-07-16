@@ -1424,8 +1424,10 @@ class DogfoodService:
             "acceptance_checks (array), and risks (array). Choose at most five changed files. "
             "Map every acceptance criterion to a selected implementation or test file, and do not select files that "
             "need no change. If the issue declares a File Scope section, it is authoritative and every selected file "
-            "must be within it. Do not select secrets, data/, .git/, deployment credentials, or files outside the "
-            "supplied repository map."
+            "must be within it. The files and evidence_files arrays must be disjoint: never select a changed file as "
+            "read-only evidence. The complete proposed diff is evidence for behavior introduced by the change, so "
+            "do not also select its changed files as evidence. Do not select secrets, data/, .git/, deployment "
+            "credentials, or files outside the supplied repository map."
         )
 
     @staticmethod
