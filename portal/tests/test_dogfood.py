@@ -612,7 +612,8 @@ def test_shared_contracts_render_empty_explicit_ledger_when_absent(tmp_path) -> 
     )
 
     assert "Shared contract ledger" in prompt
-    assert "(no shared contracts)" in prompt
+    assert "(none)" in prompt
+    assert prompt.count("Shared contract ledger:") == 1
 
 
 def test_signed_webhook_selects_only_the_configured_ready_issue(tmp_path) -> None:
