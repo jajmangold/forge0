@@ -114,6 +114,116 @@ def test_rewrite_can_preserve_but_not_introduce_secret_markers(tmp_path) -> None
         applier.apply([{"path": "docs/new.md", "operation": "create", "content": marker}])
 
 
+def test_replace_many_uses_original_offsets_and_isolates_introduced_text(tmp_path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("foo bar baz\n")
+    applier = ChangeApplier(tmp_path, config(tmp_path), {"README.md"})
+
+    changed = applier.apply(
+        [
+            {
+                "path": "README.md",
+                "operation": "replace_many",
+                "replacements": [
+                    {"old": "foo", "new": "bar"},
+                    {"old": "bar", "new": "qux"},
+                ],
+            }
+        ]
+    )
+
+    assert changed == ["README.md"]
+    assert target.read_text() == "bar qux baz\n"
+
+
+@pytest.mark.parametrize(
+    ("content", "replacements", "error"),
+    [
+        ("one\n", [], "non-empty replacements"),
+        ("one\n", [{"old": "one", "new": "ONE"}] * 13, "at most 12"),
+        ("one\n", ["not an object"], "must be an object"),
+        ("one\n", [{"old": "", "new": "ONE"}], "non-empty old and new"),
+        ("one\n", [{"old": "one", "new": ""}], "non-empty old and new"),
+        ("one\n", [{"old": "missing", "new": "new"}], "exactly once"),
+        ("repeat repeat\n", [{"old": "repeat", "new": "once"}], "exactly once"),
+        ("aaa\n", [{"old": "aa", "new": "A"}], "exactly once"),
+        (
+            "abcdef\n",
+            [{"old": "abc", "new": "ABC"}, {"old": "bcd", "new": "BCD"}],
+            "overlap",
+        ),
+    ],
+)
+def test_replace_many_rejects_invalid_replacement_sets(tmp_path, content, replacements, error) -> None:
+    target = tmp_path / "README.md"
+    target.write_text(content)
+    applier = ChangeApplier(tmp_path, config(tmp_path), {"README.md"})
+
+    with pytest.raises(DogfoodError, match=error):
+        applier.apply(
+            [{"path": "README.md", "operation": "replace_many", "replacements": replacements}]
+        )
+
+    assert target.read_text() == content
+
+
+def test_replace_many_enforces_final_content_safety_boundaries(tmp_path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("safe\n")
+
+    with pytest.raises(DogfoodError, match="resembles a secret"):
+        ChangeApplier(tmp_path, config(tmp_path), {"README.md"}).apply(
+            [
+                {
+                    "path": "README.md",
+                    "operation": "replace_many",
+                    "replacements": [{"old": "safe", "new": "-----BEGIN PRIVATE KEY-----"}],
+                }
+            ]
+        )
+    with pytest.raises(DogfoodError, match="size limit"):
+        ChangeApplier(tmp_path, config(tmp_path, max_file_bytes=6), {"README.md"}).apply(
+            [
+                {
+                    "path": "README.md",
+                    "operation": "replace_many",
+                    "replacements": [{"old": "safe", "new": "too much content"}],
+                }
+            ]
+        )
+
+    assert target.read_text() == "safe\n"
+
+
+def test_replace_many_rolls_back_when_a_later_change_is_invalid(tmp_path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("first\n")
+    secondary = tmp_path / "docs/existing.md"
+    secondary.parent.mkdir()
+    secondary.write_text("second\n")
+    applier = ChangeApplier(tmp_path, config(tmp_path), {"README.md", "docs/existing.md"})
+
+    with pytest.raises(DogfoodError, match="exactly once"):
+        applier.apply(
+            [
+                {
+                    "path": "README.md",
+                    "operation": "replace_many",
+                    "replacements": [{"old": "first", "new": "FIRST"}],
+                },
+                {
+                    "path": "docs/existing.md",
+                    "operation": "replace",
+                    "old": "missing",
+                    "new": "SECOND",
+                },
+            ]
+        )
+
+    assert readme.read_text() == "first\n"
+    assert secondary.read_text() == "second\n"
+
+
 @pytest.mark.parametrize("path", ["../secret", ".env", "outside.txt", "/tmp/file"])
 def test_change_applier_rejects_unsafe_paths(tmp_path, path: str) -> None:
     applier = ChangeApplier(tmp_path, config(tmp_path), {path})

@@ -295,6 +295,18 @@ class ChangeApplier:
                     raise DogfoodError(f"Rewrite requires complete non-empty content: {path}")
                 self._validate_content(path, content, existing_content=destination.read_text())
                 prepared.append((path, destination, content))
+            elif operation == "replace_many":
+                if not destination.is_file():
+                    raise DogfoodError(f"Replace-many target does not exist: {path}")
+                replacements = change.get("replacements")
+                if not isinstance(replacements, list) or not replacements:
+                    raise DogfoodError(f"Replace-many requires a non-empty replacements array: {path}")
+                if len(replacements) > 12:
+                    raise DogfoodError(f"Replace-many allows at most 12 replacements: {path}")
+                current = destination.read_text()
+                updated = self._replace_many(path, current, replacements)
+                self._validate_content(path, updated, existing_content=current)
+                prepared.append((path, destination, updated))
             else:
                 raise DogfoodError(f"Unsupported operation for {path}: {operation}")
             changed.append(path)
@@ -302,6 +314,34 @@ class ChangeApplier:
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(content)
         return changed
+
+    @staticmethod
+    def _replace_many(path: str, original: str, replacements: list[Any]) -> str:
+        """Reconstruct exact, non-overlapping replacements from original offsets."""
+        ranges: list[tuple[int, int, str]] = []
+        for index, replacement in enumerate(replacements):
+            if not isinstance(replacement, dict):
+                raise DogfoodError(f"Replace-many entry {index} must be an object: {path}")
+            old = replacement.get("old")
+            new = replacement.get("new")
+            if not isinstance(old, str) or not old or not isinstance(new, str) or not new:
+                raise DogfoodError(f"Replace-many entry {index} requires non-empty old and new strings: {path}")
+            start = original.find(old)
+            if start < 0 or original.find(old, start + 1) >= 0:
+                raise DogfoodError(f"Replace-many entry {index} must match exactly once: {path}")
+            ranges.append((start, start + len(old), new))
+
+        ranges.sort(key=lambda item: item[0])
+        if any(current[0] < previous[1] for previous, current in zip(ranges, ranges[1:], strict=False)):
+            raise DogfoodError(f"Replace-many entries overlap: {path}")
+
+        parts: list[str] = []
+        cursor = 0
+        for start, end, new in ranges:
+            parts.extend((original[cursor:start], new))
+            cursor = end
+        parts.append(original[cursor:])
+        return "".join(parts)
 
     def _validate_content(self, path: str, content: str, *, existing_content: str = "") -> None:
         if len(content.encode()) > self.config.max_file_bytes:
@@ -1060,10 +1100,12 @@ class DogfoodService:
             "pr_body, and changes. Use exactly these change schemas: "
             '{"path":"new.txt","operation":"create","content":"complete file text"} or '
             '{"path":"existing.py","operation":"replace","old":"exact existing block","new":"replacement block"} or '
+            '{"path":"existing.py","operation":"replace_many","replacements":'
+            '[{"old":"exact block","new":"replacement"}]} or '
             '{"path":"existing.py","operation":"rewrite","content":"complete replacement file text"}. '
             "Do not use content, patch, old_content, or new_content for a replace operation. Only touch planned files. "
-            "Use rewrite when one existing file needs multiple non-contiguous edits, and preserve all unrelated "
-            "content. "
+            "Prefer replace_many, with at most 12 non-overlapping exact blocks, for multiple non-contiguous edits. "
+            "Use rewrite only when the complete file truly must be replaced, and preserve all unrelated content. "
             "Never include secrets, generated "
             "credentials, binary data, shell payloads, or deployment actions. Keep the patch small and testable."
         )
@@ -1095,8 +1137,9 @@ class DogfoodService:
                 f"Correct this validation error and return a complete replacement response: {correction}. "
                 "A file whose supplied content is <new file> must use operation=create with content. Only an existing "
                 "file may use operation=replace with keys named exactly old and new, both containing non-empty strings."
-                " If an existing file needs multiple non-contiguous edits, return one operation=rewrite change with "
-                "its complete replacement content."
+                " If an existing file needs multiple non-contiguous edits, prefer one operation=replace_many change "
+                "with a replacements array of at most 12 exact old/new objects. Use operation=rewrite only when the "
+                "complete file truly must be replaced."
             )
         return prompt
 
