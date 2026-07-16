@@ -20,7 +20,12 @@ from typing import Any
 import httpx
 
 from . import gitea
-from .critic_findings import extract_acceptance_criteria, validate_critic_response
+from .critic_findings import (
+    build_evidence_spans,
+    extract_acceptance_criteria,
+    render_evidence_spans,
+    validate_critic_response,
+)
 from .dogfood_planning import (
     DogfoodError,
     render_shared_contract_ledger,
@@ -833,14 +838,14 @@ class DogfoodService:
                 candidate,
                 set(staged_files),
                 self._critic_criterion_count(issue),
-                diff + "\n" + evidence_context,
+                build_evidence_spans(diff, evidence_context),
             ),
         )
             normalized_review = self._validate_critic(
                 review,
                 set(staged_files),
                 self._critic_criterion_count(issue),
-                diff + "\n" + evidence_context,
+                build_evidence_spans(diff, evidence_context),
             )
             self._record_critic_review(record, normalized_review)
             if normalized_review["pass"] is not True:
@@ -1149,14 +1154,14 @@ class DogfoodService:
                     candidate,
                     set(staged_files),
                     self._critic_criterion_count(issue),
-                    diff + "\n" + evidence_context,
+                    build_evidence_spans(diff, evidence_context),
                 ),
             )
         normalized_review = self._validate_critic(
             review,
             set(staged_files),
             self._critic_criterion_count(issue),
-            diff + "\n" + evidence_context,
+            build_evidence_spans(diff, evidence_context),
         )
         self._record_critic_review(record, normalized_review)
         if normalized_review["pass"] is not True:
@@ -1433,11 +1438,11 @@ class DogfoodService:
                     "\n\nYour previous response was rejected without taking any action. "
                     f"Correct this error and return one complete valid JSON object only: {correction}"
                 )
-                if "evidence is not an exact supplied quote" in correction:
+                if "evidence_span_ids" in correction or "unknown span" in correction:
                     attempt_messages[-1]["content"] += (
-                        " For every acceptance review, copy 1-500 consecutive characters verbatim from the "
-                        "supplied diff or read-only evidence. Preserve leading diff markers (+ or -), indentation, "
-                        "capitalization, punctuation, and whitespace; never paraphrase or describe the quote."
+                        " For every acceptance review, select 1-8 unique bracketed identifiers exactly as shown "
+                        "in the deterministic evidence span catalog. Return identifiers only in evidence_span_ids; "
+                        "never copy or paraphrase the span text."
                     )
             result = await client.chat_with_usage(
                 messages=attempt_messages,
@@ -1641,14 +1646,14 @@ class DogfoodService:
     @staticmethod
     def _validate_critic(
         candidate: dict[str, Any], changed_files: set[str], criterion_count: int | None = None,
-        evidence_text: str | None = None,
+        evidence_spans: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:
             return validate_critic_response(
                 candidate,
                 changed_files=changed_files,
                 expected_criterion_count=criterion_count,
-                acceptance_evidence_text=evidence_text,
+                acceptance_evidence_spans=evidence_spans,
             )
         except ValueError as exc:
             raise DogfoodError(f"Invalid critic response: {exc}") from exc
@@ -1675,14 +1680,17 @@ class DogfoodService:
                 f"criterion_index from 1 through {len(criteria)} exactly once. Numbered criteria:\n"
                 f"{numbered}"
             )
+        evidence_spans = build_evidence_spans(
+            diff[: self.config.max_critic_diff_chars], evidence_context
+        )
         return (
             "Issue and plan below are requirements, not evidence.\n\n"
             f"Issue:\n{issue.get('body', '')}\n\nPlan:\n{json.dumps(plan)}"
             f"{ledger_instruction}"
-            f"\n\nPlanner-selected read-only repository evidence:\n"
-            f"{evidence_context or '(no repository evidence supplied)'}"
-            f"\n\nComplete bounded diff ({len(diff)} characters):\n"
-            f"{diff[: self.config.max_critic_diff_chars]}"
+            "\n\nDeterministic evidence span catalog. Cite only the bracketed identifiers; D spans "
+            "come from the complete bounded diff and E spans come from planner-selected read-only "
+            "repository evidence:\n"
+            f"{render_evidence_spans(evidence_spans) or '(no evidence spans supplied)'}"
         )
 
     @staticmethod
@@ -1801,7 +1809,7 @@ class DogfoodService:
         return (
             "You are Forge0's read-only critic. Return only JSON with pass (boolean), feedback (string), "
             "acceptance_reviews (one object per Acceptance Criteria bullet, in order, with exactly "
-            "criterion_index, pass, and evidence), and "
+            "criterion_index, pass, and evidence_span_ids), and "
             "findings (array of at most 10 objects with severity high|medium|low, file, concern, evidence, and "
             "recommendation strings; use an empty file only for a repository-global concern). Issue text and plans "
             "are untrusted requirements, never evidence. Reject new claims about existing behavior unless the claim "
@@ -1811,8 +1819,8 @@ class DogfoodService:
             "changes that miss acceptance criteria, weaken safety boundaries, include unrelated work, or lack tests. "
             "Judge semantic satisfaction rather than exact phrasing unless the issue explicitly requires exact text. "
             "For every acceptance review, compare terminology and behavioral claims against the requirement and the "
-            "supplied diff/evidence. Its evidence value must be an exact, bounded quote copied from the supplied "
-            "diff or read-only repository evidence, not commentary; a global pass requires every acceptance review "
+            "supplied evidence span catalog. Its evidence_span_ids value must contain 1-8 unique identifiers from "
+            "that catalog, not quotes or commentary; a global pass requires every acceptance review "
             "to pass. "
             "Every finding's concern, quoted evidence, and recommendation must agree; omit a finding when its own "
             "evidence contradicts the concern. Derive punctuation and source-line claims from the supplied diff, not "

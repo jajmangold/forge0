@@ -865,7 +865,7 @@ async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_critic_quote_correction_requires_verbatim_diff_text(tmp_path) -> None:
+async def test_critic_correction_requires_known_evidence_span_ids(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     record = RunRecord(
         id="critic-quote-correction",
@@ -883,7 +883,7 @@ async def test_critic_quote_correction_requires_verbatim_diff_text(tmp_path) -> 
     def validate(candidate):
         if candidate["attempt"] == 1:
             raise DogfoodError(
-                "Invalid critic response: acceptance_reviews[0].evidence is not an exact supplied quote"
+                "Invalid critic response: acceptance_reviews[0].evidence_span_ids contains unknown span D9999"
             )
         return candidate
 
@@ -899,8 +899,8 @@ async def test_critic_quote_correction_requires_verbatim_diff_text(tmp_path) -> 
 
     assert result == {"attempt": 2}
     retry_prompt = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
-    assert "consecutive characters verbatim" in retry_prompt
-    assert "Preserve leading diff markers" in retry_prompt
+    assert "bracketed identifiers exactly as shown" in retry_prompt
+    assert "never copy or paraphrase" in retry_prompt
 
 
 @pytest.mark.asyncio
@@ -1159,14 +1159,20 @@ def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
             "feedback": "grounded",
             "findings": [],
             "acceptance_reviews": [
-                {"criterion_index": 1, "pass": True, "evidence": " exact <line> "}
+                {"criterion_index": 1, "pass": True, "evidence_span_ids": ["D0001"]}
             ],
         },
         {"README.md"},
         1,
+        {"D0001": "exact <line>"},
     )
     assert reviewed["acceptance_reviews"] == [
-        {"criterion_index": 1, "pass": True, "evidence": "exact &lt;line&gt;"}
+        {
+            "criterion_index": 1,
+            "pass": True,
+            "evidence": "exact &lt;line&gt;",
+            "evidence_span_ids": ["D0001"],
+        }
     ]
     with pytest.raises(DogfoodError, match="acceptance review fails"):
         DogfoodService._validate_critic(
@@ -1175,11 +1181,12 @@ def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
                 "feedback": "wrong",
                 "findings": [],
                 "acceptance_reviews": [
-                    {"criterion_index": 1, "pass": False, "evidence": "mismatch"}
+                    {"criterion_index": 1, "pass": False, "evidence_span_ids": ["D0001"]}
                 ],
             },
             {"README.md"},
             1,
+            {"D0001": "mismatch"},
         )
 
 
@@ -1194,8 +1201,8 @@ def test_critic_prompt_numbers_every_expected_acceptance_review(tmp_path) -> Non
     assert "Return exactly 2 acceptance_reviews entries" in prompt
     assert "criterion_index from 1 through 2 exactly once" in prompt
     assert "1. first term\n2. second term" in prompt
-    assert "bounded evidence" in prompt
-    assert "bounded diff" in prompt
+    assert "[E0001] bounded evidence" in prompt
+    assert "[D0001] bounded diff" in prompt
 
 
 def test_pull_body_separates_checks_and_manual_coverage(tmp_path) -> None:
@@ -1681,7 +1688,7 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
             "feedback": "ok",
             "findings": [],
             "acceptance_reviews": [
-                {"criterion_index": 1, "pass": True, "evidence": "complete diff"}
+                {"criterion_index": 1, "pass": True, "evidence_span_ids": ["D0001"]}
             ],
         }
     )
@@ -1713,18 +1720,13 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
     assert "requirements, not evidence" in critic_prompt
     assert "bounded evidence" in critic_prompt
     assert [event["purpose"] for event in record.llm_budget_admissions] == ["critic-repair"]
-    assert record.critic_reviews == [
-        {
-            "attempt": 1,
-            "repair_count": 1,
-            "pass": True,
-            "feedback": "ok",
-            "findings": [],
-            "acceptance_reviews": [
-                {"criterion_index": 1, "pass": True, "evidence": "complete diff"}
-            ],
-        }
-    ]
+    assert record.critic_reviews[0]["attempt"] == 1
+    assert record.critic_reviews[0]["repair_count"] == 1
+    assert record.critic_reviews[0]["pass"] is True
+    acceptance = record.critic_reviews[0]["acceptance_reviews"][0]
+    assert acceptance["criterion_index"] == 1
+    assert acceptance["pass"] is True
+    assert acceptance["evidence_span_ids"] == ["D0001"]
 
 
 @pytest.mark.asyncio
