@@ -58,6 +58,7 @@ class DogfoodConfig:
     operator_token: str = ""
     webhook_secret: str = ""
     git_user: str = "agent"
+    coder_model: str = "planner"
     allowed_paths: tuple[str, ...] = (
         ".gitea/",
         ".opencode/",
@@ -100,6 +101,7 @@ class DogfoodConfig:
             operator_token=os.getenv("FORGE0_OPERATOR_TOKEN", ""),
             webhook_secret=os.getenv("FORGE0_WEBHOOK_SECRET", ""),
             git_user=os.getenv("GITEA_ADMIN_USER", "agent"),
+            coder_model=os.getenv("FORGE0_CODER_MODEL", "planner"),
             allowed_paths=allowed or cls.allowed_paths,
             max_changed_files=int(os.getenv("FORGE0_MAX_CHANGED_FILES", "5")),
             max_diff_lines=int(os.getenv("FORGE0_MAX_DIFF_LINES", "500")),
@@ -127,6 +129,7 @@ class RunRecord:
     changed_files: list[str] = field(default_factory=list)
     verification: list[dict[str, Any]] = field(default_factory=list)
     critic_feedback: str = ""
+    correction_errors: list[str] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     error: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -546,7 +549,7 @@ class DogfoodService:
                             "content": self._implementation_prompt(issue, plan, file_context, correction),
                         },
                     ],
-                    model="worker",
+                    model=self.config.coder_model,
                     temperature=0.1,
                     max_tokens=16_000,
                 )
@@ -562,6 +565,8 @@ class DogfoodService:
                     if attempt == 2:
                         raise
                     correction = self._safe_error(exc)
+                    record.correction_errors.append(f"implementation: {correction}")
+                    self.store.save(record)
 
             staged_files, diff_lines, diff = await workspace.stage_and_measure()
             if set(staged_files) != set(applied):
@@ -723,6 +728,8 @@ class DogfoodService:
                 if attempt == 2:
                     raise
                 correction = self._safe_error(exc)
+                record.correction_errors.append(f"{model}: {correction}")
+                self.store.save(record)
         raise DogfoodError("Structured response correction was exhausted")
 
     async def _comment(self, record: RunRecord, body: str) -> None:

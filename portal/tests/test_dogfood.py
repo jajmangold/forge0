@@ -229,6 +229,7 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
 
     assert loaded.full_name == "agent/forge0"
     assert "portal/" in loaded.allowed_paths
+    assert loaded.coder_model == "planner"
 
 
 @pytest.mark.asyncio
@@ -254,5 +255,6 @@ async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
     assert result == {"files": ["README.md"]}
     assert client.chat_with_usage.await_count == 2
     assert record.usage["total_tokens"] == 9
+    assert record.correction_errors == ["planner: LLM response did not contain a JSON object"]
     correction = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
     assert "valid JSON object only" in correction
