@@ -239,6 +239,7 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
     assert loaded.coder_model == "planner"
     assert loaded.max_diff_lines == 500
     assert loaded.max_kernel_diff_lines == 2000
+    assert loaded.max_critic_diff_chars == 160000
 
     service = DogfoodService(loaded)
     assert service._diff_limit(["kernels/example/kernel.cu"]) == 2000
