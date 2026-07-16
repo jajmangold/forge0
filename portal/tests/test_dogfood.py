@@ -1476,7 +1476,7 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
             "feedback": "ok",
             "findings": [],
             "acceptance_reviews": [
-                {"criterion_index": 1, "pass": True, "evidence": "fixed in diff"}
+                {"criterion_index": 1, "pass": True, "evidence": "complete diff"}
             ],
         }
     )
@@ -1516,7 +1516,7 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
             "feedback": "ok",
             "findings": [],
             "acceptance_reviews": [
-                {"criterion_index": 1, "pass": True, "evidence": "fixed in diff"}
+                {"criterion_index": 1, "pass": True, "evidence": "complete diff"}
             ],
         }
     ]

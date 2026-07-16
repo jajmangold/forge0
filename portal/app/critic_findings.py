@@ -56,7 +56,9 @@ def extract_acceptance_criteria(text: str) -> list[str]:
     return criteria
 
 
-def _acceptance_reviews(value: Any, expected_count: int) -> list[dict[str, Any]]:
+def _acceptance_reviews(
+    value: Any, expected_count: int, evidence_text: str | None
+) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) != expected_count:
         raise ValueError(f"acceptance_reviews must contain exactly {expected_count} entries")
     normalized: list[AcceptanceReview] = []
@@ -77,11 +79,15 @@ def _acceptance_reviews(value: Any, expected_count: int) -> list[dict[str, Any]]
         passed = item["pass"]
         if not isinstance(passed, bool):
             raise ValueError(f"acceptance_reviews[{position}].pass must be a boolean")
-        evidence = _text(
-            item["evidence"],
-            f"acceptance_reviews[{position}].evidence",
-            limit=MAX_ACCEPTANCE_EVIDENCE_CHARS,
-        )
+        raw_evidence = item["evidence"]
+        if not isinstance(raw_evidence, str):
+            raise ValueError(f"acceptance_reviews[{position}].evidence must be a string")
+        raw_evidence = raw_evidence.strip()
+        if not raw_evidence or len(raw_evidence) > MAX_ACCEPTANCE_EVIDENCE_CHARS:
+            raise ValueError(f"acceptance_reviews[{position}].evidence must be 1-500 characters")
+        if evidence_text is not None and raw_evidence not in evidence_text:
+            raise ValueError(f"acceptance_reviews[{position}].evidence is not an exact supplied quote")
+        evidence = html.escape(raw_evidence, quote=True).replace("`", "&#96;")
         normalized.append(AcceptanceReview(index, passed, evidence))
     normalized.sort(key=lambda review: review.criterion_index)
     return [
@@ -135,6 +141,7 @@ def validate_critic_response(
     *,
     changed_files: set[str] | None = None,
     expected_criterion_count: int | None = None,
+    acceptance_evidence_text: str | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic JSON-serializable critic response or raise ValueError."""
     if not isinstance(value, dict):
@@ -169,7 +176,9 @@ def validate_critic_response(
         raise ValueError("a failing critic requires feedback or a finding")
     result = {"pass": passed, "feedback": feedback, "findings": [asdict(item) for item in findings]}
     if expected_criterion_count is not None:
-        reviews = _acceptance_reviews(value.get("acceptance_reviews"), expected_criterion_count)
+        reviews = _acceptance_reviews(
+            value.get("acceptance_reviews"), expected_criterion_count, acceptance_evidence_text
+        )
         if passed and any(review["pass"] is not True for review in reviews):
             raise ValueError("pass cannot be true when an acceptance review fails")
         result["acceptance_reviews"] = reviews

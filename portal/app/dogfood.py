@@ -826,12 +826,14 @@ class DogfoodService:
                 candidate,
                 set(staged_files),
                 self._critic_criterion_count(issue),
+                diff + "\n" + evidence_context,
             ),
         )
             normalized_review = self._validate_critic(
                 review,
                 set(staged_files),
                 self._critic_criterion_count(issue),
+                diff + "\n" + evidence_context,
             )
             self._record_critic_review(record, normalized_review)
             if normalized_review["pass"] is not True:
@@ -1109,12 +1111,14 @@ class DogfoodService:
                     candidate,
                     set(staged_files),
                     self._critic_criterion_count(issue),
+                    diff + "\n" + evidence_context,
                 ),
             )
         normalized_review = self._validate_critic(
             review,
             set(staged_files),
             self._critic_criterion_count(issue),
+            diff + "\n" + evidence_context,
         )
         self._record_critic_review(record, normalized_review)
         if normalized_review["pass"] is not True:
@@ -1516,13 +1520,15 @@ class DogfoodService:
 
     @staticmethod
     def _validate_critic(
-        candidate: dict[str, Any], changed_files: set[str], criterion_count: int | None = None
+        candidate: dict[str, Any], changed_files: set[str], criterion_count: int | None = None,
+        evidence_text: str | None = None,
     ) -> dict[str, Any]:
         try:
             return validate_critic_response(
                 candidate,
                 changed_files=changed_files,
                 expected_criterion_count=criterion_count,
+                acceptance_evidence_text=evidence_text,
             )
         except ValueError as exc:
             raise DogfoodError(f"Invalid critic response: {exc}") from exc
@@ -1669,7 +1675,9 @@ class DogfoodService:
             "changes that miss acceptance criteria, weaken safety boundaries, include unrelated work, or lack tests. "
             "Judge semantic satisfaction rather than exact phrasing unless the issue explicitly requires exact text. "
             "For every acceptance review, compare terminology and behavioral claims against the requirement and the "
-            "supplied diff/evidence; a global pass requires every acceptance review to pass. "
+            "supplied diff/evidence. Its evidence value must be an exact, bounded quote copied from the supplied "
+            "diff or read-only repository evidence, not commentary; a global pass requires every acceptance review "
+            "to pass. "
             "Every finding's concern, quoted evidence, and recommendation must agree; omit a finding when its own "
             "evidence contradicts the concern. Derive punctuation and source-line claims from the supplied diff, not "
             "from hypothetical rendering."
