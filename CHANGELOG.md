@@ -36,6 +36,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- normalize mixed replacement batches
 - let the engine extend itself
 - demand verbatim critic corrections
 - bound shared contract context
@@ -72,6 +73,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
