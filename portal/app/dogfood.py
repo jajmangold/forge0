@@ -729,7 +729,7 @@ class DogfoodService:
             implementation: dict[str, Any] = {}
             applied: list[str] = []
             for target_file in sorted(planned_files):
-                file_context = self._planned_file_context(workspace.repo_path, {target_file})
+                file_context = self._planned_file_context(workspace.repo_path, planned_files)
                 correction = ""
                 for attempt in range(3):
                     implementation_messages = [
@@ -943,7 +943,7 @@ class DogfoodService:
         repair_targets = self._verification_repair_targets(planned_files, diagnostic)
         repaired_files: list[str] = []
         for target_file in sorted(repair_targets):
-            file_context = self._planned_file_context(workspace.repo_path, {target_file})
+            file_context = self._planned_file_context(workspace.repo_path, planned_files)
             correction = ""
             for attempt in range(3):
                 repair_messages = [
@@ -1044,7 +1044,7 @@ class DogfoodService:
         # Regenerate only implicated planned files using current contents plus critic feedback.
         new_applied: list[str] = []
         for target_file in sorted(repair_targets):
-            file_context = self._planned_file_context(workspace.repo_path, {target_file})
+            file_context = self._planned_file_context(workspace.repo_path, planned_files)
             correction = ""
             for attempt in range(3):
                 repair_messages = [

@@ -1285,6 +1285,35 @@ async def test_verification_repair_regenerates_and_reruns_fixed_checks(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_verification_repair_sees_all_planned_file_contracts(tmp_path) -> None:
+    cfg = config(tmp_path, max_verification_repairs=1)
+    service = DogfoodService(cfg)
+    workspace = repair_workspace(tmp_path, cfg)
+    contract = workspace.repo_path / "contract.py"
+    contract.write_text("PUBLIC_HELPER = 'list_review_pulls'\n")
+    record = repair_record("verification-repair-shared-context")
+    record.changed_files = ["README.md"]
+    client = repair_client()
+
+    with patch.object(service, "_comment", new=AsyncMock()):
+        await service._verification_repair_pass(
+            record,
+            workspace,
+            client,
+            {"title": "Repair", "body": "## Acceptance Criteria\n- keep contracts aligned"},
+            {"files": ["README.md", "contract.py"]},
+            {"README.md", "contract.py"},
+            {},
+            {"command": "pytest -q", "success": False, "output": "README.md uses the wrong helper"},
+        )
+
+    prompt = client.chat_with_usage.await_args.kwargs["messages"][-1]["content"]
+    assert '<file path="README.md">' in prompt
+    assert '<file path="contract.py">' in prompt
+    assert "list_review_pulls" in prompt
+
+
+@pytest.mark.asyncio
 async def test_verification_repair_cannot_exceed_issue_diff_line_limit(tmp_path) -> None:
     cfg = config(tmp_path, max_verification_repairs=1)
     service = DogfoodService(cfg)
