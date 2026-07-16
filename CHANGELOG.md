@@ -35,6 +35,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- demand verbatim critic corrections
 - bound shared contract context
 - share planned file contracts
 - hand drafts off for review
@@ -69,6 +70,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
