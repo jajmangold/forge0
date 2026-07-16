@@ -857,6 +857,7 @@ class DogfoodService:
             record.status = RunStatus.PUBLISHING
             self.store.save(record)
             agent_label_id = await self._ensure_agent_label(record.owner, record.repo)
+            review_label_id = await self._ensure_review_label(record.owner, record.repo)
             commit_message = self._commit_message(implementation, record.issue_number)
             sha = await workspace.commit_and_push(commit_message, record.branch)
             pull = await gitea.create_pull(
@@ -872,6 +873,28 @@ class DogfoodService:
             if not isinstance(record.pull_number, int):
                 raise DogfoodError("Gitea did not return a pull request number")
             await gitea.add_issue_labels(record.owner, record.repo, record.pull_number, [agent_label_id])
+            trigger_label = next(
+                (
+                    label
+                    for label in issue.get("labels", [])
+                    if label.get("name") == self.config.trigger_label
+                ),
+                None,
+            )
+            trigger_label_id = trigger_label.get("id") if trigger_label else None
+            if isinstance(trigger_label_id, int):
+                await gitea.remove_issue_label(
+                    record.owner,
+                    record.repo,
+                    record.issue_number,
+                    trigger_label_id,
+                )
+            await gitea.add_issue_labels(
+                record.owner,
+                record.repo,
+                record.issue_number,
+                [review_label_id],
+            )
             record.status = RunStatus.DRAFT_OPENED
             self.store.save(record)
             await self._comment(
@@ -1409,6 +1432,23 @@ class DogfoodService:
         label_id = label.get("id")
         if not isinstance(label_id, int):
             raise DogfoodError("Gitea did not return the agent label ID")
+        return label_id
+
+    @staticmethod
+    async def _ensure_review_label(owner: str, repo: str) -> int:
+        labels = await gitea.list_labels(owner, repo)
+        label = next((item for item in labels if item.get("name") == "status:review"), None)
+        if label is None:
+            label = await gitea.create_label(
+                owner,
+                repo,
+                "status:review",
+                "2563eb",
+                "A draft change exists and is waiting for human review",
+            )
+        label_id = label.get("id")
+        if not isinstance(label_id, int):
+            raise DogfoodError("Gitea did not return the review label ID")
         return label_id
 
     @staticmethod

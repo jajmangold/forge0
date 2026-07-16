@@ -214,6 +214,17 @@ async def test_markdown_rendering_uses_gitea_sanitizer_and_repairs_proxy_links()
     )
 
 
+@pytest.mark.asyncio
+async def test_remove_issue_label_uses_the_specific_label_endpoint() -> None:
+    with patch("app.gitea._request", new=AsyncMock(return_value=None)) as request:
+        await gitea.remove_issue_label("owner", "repo", 7, 13)
+
+    request.assert_awaited_once_with(
+        "DELETE",
+        "/repos/owner/repo/issues/7/labels/13",
+    )
+
+
 def test_repository_renders_sanitized_markdown() -> None:
     repo = {"full_name": "owner/repo", "name": "repo", "owner": {"login": "owner"},
             "default_branch": "main", "description": "", "stars_count": 0, "forks_count": 0,

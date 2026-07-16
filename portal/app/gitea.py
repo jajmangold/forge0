@@ -190,6 +190,13 @@ async def add_issue_labels(owner: str, name: str, number: int, label_ids: list[i
     )
 
 
+async def remove_issue_label(owner: str, name: str, number: int, label_id: int) -> None:
+    await _request(
+        "DELETE",
+        f"/repos/{owner}/{name}/issues/{number}/labels/{label_id}",
+    )
+
+
 async def list_pulls(owner: str, name: str, state: str = "open", limit: int = 20) -> list[dict]:
     return await _get(f"/repos/{owner}/{name}/pulls", {"state": state, "limit": limit})
 
