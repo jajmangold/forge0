@@ -1,0 +1,72 @@
+# Changelog
+
+## Unreleased
+
+### Added
+- render project docs and report outages
+- rebuild the user experience
+- coalesce target replacements safely
+- address issue 22
+- require per-criterion critic reviews
+- address issue 19
+- enforce issue diff line limits
+- address issue 16
+- persist LLM budget admissions
+- address issue 13
+- show critic review counts in self-extension run list
+- address issue 9
+- persist critic review history
+- ground critic claims in repository evidence
+- persist structured critic findings
+- add bounded critic finding model
+- repair one verification failure
+- report verification coverage honestly
+- add transactional multi-block replacements
+- enforce issue file scopes
+- add bounded critic repair pass
+- support bounded whole-file rewrites
+- expose supervised workspace retention
+- bound larger kernel-only diffs
+- budget large accelerator changes
+- allow accelerator kernel projects
+- complete Forge0 MVP and self-extension loop
+- initial Forge0 agent platform
+
+### Fixed
+- hand drafts off for review
+- enforce Gitea canonical origin
+- integrate Gitea workspace login
+- make live updates local-first
+- surface repository documentation
+- keep commands readable
+- ground acceptance evidence exactly
+- enumerate critic acceptance reviews
+- render critic evidence once
+- keep planner evidence disjoint
+- admit calls within token budget
+- target repairs to implicated files
+- require internally consistent criticism
+- bound oversized evidence excerpts
+- guard truncated critic repairs
+- recover from truncated model responses
+- allow preserved detector signatures
+- preserve complete critic diffs
+- review complete bounded kernel diffs
+- constrain structured model output
+- persist failed verification output
+- make edit schema explicit
+- use stronger model for implementation
+- correct structured agent responses
+- correct new-file model output
+- retry transient model failures
+- recover runs interrupted by restarts
+- publish native Gitea draft PRs
+- retry malformed structured edits
+- use internal callback URL for hooks
+
+### Documentation
+- prove atomic multi-region editing
+- make diff limit proof precise
+- keep admission audit within line bound
+- add evidence-grounded criticism boundary to recursive dogfood list
+- record recursive safety boundaries
