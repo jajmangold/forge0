@@ -77,6 +77,10 @@ byte-compilation, then asks a separate critic to approve the diff. The final
 authority boundary is intentional: Forge0 pushes an `agent/` branch and opens
 a draft PR, but it never merges or deploys its own work.
 
+The default per-file ceiling is 128 KiB so Forge0 can modify its current
+self-extension engine; the independent five-file and 500-line diff limits still
+bound every run.
+
 An optional `## File Scope` section in the issue body restricts which files
 the planner may modify. Paths are repository-relative, backtick-wrapped bullets
 (listed one per line) terminated by the next heading. The scope is validated

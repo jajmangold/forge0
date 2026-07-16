@@ -80,7 +80,7 @@ class DogfoodConfig:
     max_changed_files: int = 5
     max_diff_lines: int = 500
     max_kernel_diff_lines: int = 2_000
-    max_file_bytes: int = 80_000
+    max_file_bytes: int = 128_000
     max_critic_diff_chars: int = 160_000
     token_budget: int = 100_000
     keep_workspaces: bool = False
@@ -121,7 +121,7 @@ class DogfoodConfig:
             max_changed_files=int(os.getenv("FORGE0_MAX_CHANGED_FILES", "5")),
             max_diff_lines=int(os.getenv("FORGE0_MAX_DIFF_LINES", "500")),
             max_kernel_diff_lines=int(os.getenv("FORGE0_MAX_KERNEL_DIFF_LINES", "2000")),
-            max_file_bytes=int(os.getenv("FORGE0_MAX_FILE_BYTES", "80000")),
+            max_file_bytes=int(os.getenv("FORGE0_MAX_FILE_BYTES", "128000")),
             max_critic_diff_chars=int(os.getenv("FORGE0_MAX_CRITIC_DIFF_CHARS", "160000")),
             token_budget=int(os.getenv("FORGE0_RUN_TOKEN_BUDGET", "100000")),
             keep_workspaces=os.getenv("FORGE0_KEEP_WORKSPACES", "false").lower() == "true",
