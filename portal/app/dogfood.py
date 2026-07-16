@@ -75,6 +75,7 @@ class DogfoodConfig:
     )
     max_changed_files: int = 5
     max_diff_lines: int = 500
+    max_kernel_diff_lines: int = 2_000
     max_file_bytes: int = 80_000
     token_budget: int = 100_000
     keep_workspaces: bool = False
@@ -106,6 +107,7 @@ class DogfoodConfig:
             allowed_paths=allowed or cls.allowed_paths,
             max_changed_files=int(os.getenv("FORGE0_MAX_CHANGED_FILES", "5")),
             max_diff_lines=int(os.getenv("FORGE0_MAX_DIFF_LINES", "500")),
+            max_kernel_diff_lines=int(os.getenv("FORGE0_MAX_KERNEL_DIFF_LINES", "2000")),
             max_file_bytes=int(os.getenv("FORGE0_MAX_FILE_BYTES", "80000")),
             token_budget=int(os.getenv("FORGE0_RUN_TOKEN_BUDGET", "100000")),
             keep_workspaces=os.getenv("FORGE0_KEEP_WORKSPACES", "false").lower() == "true",
@@ -585,8 +587,9 @@ class DogfoodService:
             staged_files, diff_lines, diff = await workspace.stage_and_measure()
             if set(staged_files) != set(applied):
                 raise DogfoodError("Repository changes did not match the structured change list")
-            if diff_lines > self.config.max_diff_lines:
-                raise DogfoodError(f"Diff exceeded {self.config.max_diff_lines} changed lines")
+            diff_limit = self._diff_limit(staged_files)
+            if diff_lines > diff_limit:
+                raise DogfoodError(f"Diff exceeded {diff_limit} changed lines")
             record.changed_files = staged_files
 
             record.status = RunStatus.VERIFYING
@@ -700,6 +703,11 @@ class DogfoodService:
         for path in planned:
             applier._resolve(path)
         return planned
+
+    def _diff_limit(self, changed_files: list[str]) -> int:
+        if changed_files and all(path.startswith("kernels/") for path in changed_files):
+            return self.config.max_kernel_diff_lines
+        return self.config.max_diff_lines
 
     def _add_usage(self, record: RunRecord, usage: dict[str, int]) -> None:
         for key, value in usage.items():

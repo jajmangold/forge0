@@ -237,6 +237,12 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
     assert "portal/" in loaded.allowed_paths
     assert "kernels/" in loaded.allowed_paths
     assert loaded.coder_model == "planner"
+    assert loaded.max_diff_lines == 500
+    assert loaded.max_kernel_diff_lines == 2000
+
+    service = DogfoodService(loaded)
+    assert service._diff_limit(["kernels/example/kernel.cu"]) == 2000
+    assert service._diff_limit(["kernels/example/kernel.cu", "portal/app/main.py"]) == 500
 
 
 @pytest.mark.asyncio
