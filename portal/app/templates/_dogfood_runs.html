@@ -14,7 +14,7 @@
     <div class="run-info">
       <div class="run-title">#{{ run.issue_number }} {{ run.issue_title }}</div>
       <div class="run-meta">
-        <code>{{ run.id }}</code> · {{ run.status.value }} · {{ run.updated_at | time_ago }}
+        <code>{{ run.id }}</code> · {{ run.status.value }} · {{ run.updated_at | time_ago }}{% if run.critic_reviews %} · {{ run.critic_reviews | length }} critic review{{ 's' if run.critic_reviews | length > 1 }}{% endif %}
       </div>
       {% if run.error %}<div class="error-text">{{ run.error[:300] }}</div>{% endif %}
     </div>

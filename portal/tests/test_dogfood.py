@@ -862,6 +862,51 @@ def test_pull_body_safely_renders_structured_critic_findings() -> None:
     assert "&lt;script&gt;" in body
 
 
+def test_dogfood_runs_shows_critic_review_count(tmp_path) -> None:
+    store = RunStore(tmp_path / "runs")
+    zero = RunRecord(
+        id="zero-reviews", owner="agent", repo="forge0",
+        issue_number=1, issue_title="No reviews",
+    )
+    one = RunRecord(
+        id="one-review", owner="agent", repo="forge0",
+        issue_number=2, issue_title="One review",
+        critic_reviews=[{"attempt": 1, "repair_count": 0, "pass": True, "feedback": "ok", "findings": []}],
+    )
+    two = RunRecord(
+        id="two-reviews", owner="agent", repo="forge0",
+        issue_number=3, issue_title="Two reviews",
+        critic_reviews=[
+            {"attempt": 1, "repair_count": 0, "pass": False, "feedback": "fix", "findings": []},
+            {"attempt": 2, "repair_count": 1, "pass": True, "feedback": "ok", "findings": []},
+        ],
+    )
+    for rec in (zero, one, two):
+        store.save(rec)
+
+    original = main._dogfood_service
+    svc = DogfoodService(config(tmp_path))
+    svc.store = store
+    main._dogfood_service = svc
+    client = TestClient(main.app)
+    try:
+        response = client.get("/partials/dogfood-runs")
+    finally:
+        main._dogfood_service = original
+
+    blocks = response.text.split('<div class="run-item">')[1:]
+
+    chunk = next(b for b in blocks if "zero-reviews" in b)
+    assert "critic review" not in chunk
+
+    chunk = next(b for b in blocks if "one-review" in b)
+    assert "1 critic review" in chunk
+    assert "2 critic reviews" not in chunk
+
+    chunk = next(b for b in blocks if "two-reviews" in b)
+    assert "2 critic reviews" in chunk
+
+
 def repair_workspace(tmp_path, cfg: DogfoodConfig, *, verification_success: bool = True) -> GitWorkspace:
     workspace = GitWorkspace(tmp_path / "workspace", cfg, "token")
     workspace.repo_path.mkdir(parents=True)
