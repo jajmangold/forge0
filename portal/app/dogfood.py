@@ -76,7 +76,7 @@ class DogfoodConfig:
     max_changed_files: int = 5
     max_diff_lines: int = 500
     max_file_bytes: int = 80_000
-    token_budget: int = 50_000
+    token_budget: int = 100_000
     keep_workspaces: bool = False
 
     @property
@@ -107,7 +107,7 @@ class DogfoodConfig:
             max_changed_files=int(os.getenv("FORGE0_MAX_CHANGED_FILES", "5")),
             max_diff_lines=int(os.getenv("FORGE0_MAX_DIFF_LINES", "500")),
             max_file_bytes=int(os.getenv("FORGE0_MAX_FILE_BYTES", "80000")),
-            token_budget=int(os.getenv("FORGE0_RUN_TOKEN_BUDGET", "50000")),
+            token_budget=int(os.getenv("FORGE0_RUN_TOKEN_BUDGET", "100000")),
             keep_workspaces=os.getenv("FORGE0_KEEP_WORKSPACES", "false").lower() == "true",
         )
 
@@ -529,7 +529,7 @@ class DogfoodService:
                 ],
                 model="planner",
                 temperature=0.1,
-                max_tokens=4000,
+                max_tokens=8000,
                 validate=self._validate_plan,
             )
             planned_files = self._validate_plan(plan)
@@ -560,7 +560,7 @@ class DogfoodService:
                         ],
                         model=self.config.coder_model,
                         temperature=0.1,
-                        max_tokens=12_000,
+                        max_tokens=20_000,
                     )
                     self._add_usage(record, code_result.usage)
                     try:
