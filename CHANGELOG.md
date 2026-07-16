@@ -35,6 +35,7 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- bound shared contract context
 - share planned file contracts
 - hand drafts off for review
 - enforce Gitea canonical origin
@@ -68,6 +69,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
