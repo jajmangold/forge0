@@ -480,11 +480,14 @@ int main(int argc, char* argv[]) {
     CUDA_CHECK(cudaEventElapsedTime(&baseline_time_ms, start_event, stop_event));
     float baseline_avg_ms = baseline_time_ms / iterations;
 
-    // Effective bandwidth (bytes read + written)
-    // Fused reads: x, gate, up, residual (4 * total_elements * 4 bytes), writes: out (1 * total_elements * 4 bytes)
-    size_t bytes_fused = (size_t)total_elements * 4 * sizeof(float) + (size_t)total_elements * sizeof(float);
-    // Baseline: same total bytes but two passes
-    size_t bytes_baseline = bytes_fused + (size_t)num_rows * sizeof(float); // plus rms_vals read/write
+    // Algorithmic bytes read + written. This counts each logical tensor pass,
+    // including row offsets and the baseline's RMS intermediate.
+    size_t bytes_fused =
+        (size_t)total_elements * 5 * sizeof(float) +
+        (size_t)(num_rows + 1) * sizeof(int);
+    size_t bytes_baseline =
+        (size_t)total_elements * 6 * sizeof(float) +
+        (size_t)(2 * (num_rows + 1) + 2 * num_rows) * sizeof(int);
 
     double fused_bw = (double)bytes_fused / (fused_avg_ms * 1e-3) / 1e9; // GB/s
     double baseline_bw = (double)bytes_baseline / (baseline_avg_ms * 1e-3) / 1e9;
@@ -495,7 +498,7 @@ int main(int argc, char* argv[]) {
     printf("  Baseline kernel: %.3f ms avg, effective bandwidth: %.2f GB/s\n", baseline_avg_ms, baseline_bw);
     printf("  Speedup (baseline/fused): %.2fx\n", speedup);
     printf("  (Note: Speedup > 1.0 means fused is faster, < 1.0 means slower.)\n");
-    printf("  (Illustrative until measured on real hardware.)\n");
+    printf("  (Measurements are specific to this hardware, shape, and configuration.)\n");
 
     // Cleanup
     CUDA_CHECK(cudaEventDestroy(start_event));
