@@ -80,6 +80,26 @@ def test_change_applier_rejects_symlink_targets(tmp_path) -> None:
         applier.apply([{"path": "docs/link/new.md", "operation": "create", "content": "x"}])
 
 
+def test_change_applier_is_transactional_when_a_later_change_is_invalid(tmp_path) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("before\n")
+    (tmp_path / "docs").mkdir()
+    secondary = tmp_path / "docs/new.md"
+    secondary.write_text("missing\n")
+    applier = ChangeApplier(tmp_path, config(tmp_path), {"README.md", "docs/new.md"})
+
+    with pytest.raises(DogfoodError, match="non-empty"):
+        applier.apply(
+            [
+                {"path": "README.md", "operation": "replace", "old": "before", "new": "after"},
+                {"path": "docs/new.md", "operation": "replace", "old": "missing", "new": ""},
+            ]
+        )
+
+    assert readme.read_text() == "before\n"
+    assert secondary.read_text() == "missing\n"
+
+
 def test_issue_validation_requires_label_and_acceptance_criteria(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
 

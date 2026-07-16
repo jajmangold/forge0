@@ -230,6 +230,7 @@ class ChangeApplier:
             raise DogfoodError("The coder exceeded the changed-file limit")
 
         changed: list[str] = []
+        prepared: list[tuple[str, Path, str]] = []
         for change in changes:
             path, destination = self._resolve(str(change.get("path", "")))
             operation = change.get("operation")
@@ -243,24 +244,26 @@ class ChangeApplier:
                 if not isinstance(content, str):
                     raise DogfoodError(f"Create content must be text: {path}")
                 self._validate_content(path, content)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_text(content)
+                prepared.append((path, destination, content))
             elif operation == "replace":
                 if not destination.is_file():
                     raise DogfoodError(f"Replace target does not exist: {path}")
                 old = change.get("old")
                 new = change.get("new")
-                if not isinstance(old, str) or not old or not isinstance(new, str):
+                if not isinstance(old, str) or not old or not isinstance(new, str) or not new:
                     raise DogfoodError(f"Replace blocks must be non-empty text: {path}")
                 current = destination.read_text()
                 if current.count(old) != 1:
                     raise DogfoodError(f"Replace block must match exactly once: {path}")
                 updated = current.replace(old, new, 1)
                 self._validate_content(path, updated)
-                destination.write_text(updated)
+                prepared.append((path, destination, updated))
             else:
                 raise DogfoodError(f"Unsupported operation for {path}: {operation}")
             changed.append(path)
+        for _path, destination, content in prepared:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(content)
         return changed
 
     def _validate_content(self, path: str, content: str) -> None:
@@ -517,24 +520,34 @@ class DogfoodService:
             file_context = self._planned_file_context(workspace.repo_path, planned_files)
             record.status = RunStatus.IMPLEMENTING
             self.store.save(record)
-            code_result = await client.chat_with_usage(
-                messages=[
-                    {"role": "system", "content": self._coder_system_prompt()},
-                    {
-                        "role": "user",
-                        "content": self._implementation_prompt(issue, plan, file_context),
-                    },
-                ],
-                model="worker",
-                temperature=0.1,
-                max_tokens=16_000,
-            )
-            self._add_usage(record, code_result.usage)
-            implementation = self._parse_json(code_result.content)
-            changes = implementation.get("changes")
-            if not isinstance(changes, list):
-                raise DogfoodError("Coder response did not contain a changes list")
-            applied = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+            implementation: dict[str, Any] = {}
+            applied: list[str] = []
+            correction = ""
+            for attempt in range(2):
+                code_result = await client.chat_with_usage(
+                    messages=[
+                        {"role": "system", "content": self._coder_system_prompt()},
+                        {
+                            "role": "user",
+                            "content": self._implementation_prompt(issue, plan, file_context, correction),
+                        },
+                    ],
+                    model="worker",
+                    temperature=0.1,
+                    max_tokens=16_000,
+                )
+                self._add_usage(record, code_result.usage)
+                try:
+                    implementation = self._parse_json(code_result.content)
+                    changes = implementation.get("changes")
+                    if not isinstance(changes, list):
+                        raise DogfoodError("Coder response did not contain a changes list")
+                    applied = ChangeApplier(workspace.repo_path, self.config, planned_files).apply(changes)
+                    break
+                except DogfoodError as exc:
+                    if attempt == 1:
+                        raise
+                    correction = self._safe_error(exc)
 
             staged_files, diff_lines, diff = await workspace.stage_and_measure()
             if set(staged_files) != set(applied):
@@ -740,11 +753,22 @@ class DogfoodService:
         )
 
     @staticmethod
-    def _implementation_prompt(issue: dict[str, Any], plan: dict[str, Any], files: str) -> str:
-        return (
+    def _implementation_prompt(
+        issue: dict[str, Any],
+        plan: dict[str, Any],
+        files: str,
+        correction: str = "",
+    ) -> str:
+        prompt = (
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
             f"Approved plan:\n{json.dumps(plan, indent=2)}\n\nApproved file contents:\n{files}"
         )
+        if correction:
+            prompt += (
+                "\n\nYour previous structured response was rejected without applying any files. "
+                f"Correct this validation error and return a complete replacement response: {correction}"
+            )
+        return prompt
 
     @staticmethod
     def _critic_system_prompt() -> str:
