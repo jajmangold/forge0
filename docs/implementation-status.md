@@ -49,9 +49,9 @@ documents are not automatically implemented features.
 These are working staging capabilities on agent branches; they are not claimed
 as deployed on canonical main.
 
-- **Authoritative issue File Scope.** When an issue declares one, the planner
-  cannot select paths outside it; every coder change is also confined to the
-  resulting planned-file set.
+- **Authoritative issue File Scope.** When an issue declares one, planner
+  responses selecting paths outside it are rejected; `ChangeApplier` likewise
+  rejects coder changes outside the resulting planned-file set.
 - **Transactional structured edits.** Creates, single or multi-block exact
   replacements, and bounded rewrites are validated before they are written; the
   agent never applies a model-supplied raw diff.

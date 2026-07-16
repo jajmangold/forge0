@@ -331,6 +331,44 @@ def test_plan_cannot_escape_issue_file_scope_and_legacy_plan_is_unchanged(tmp_pa
         service._validate_plan({"files": ["README.md", "portal/app/main.py"]}, {"README.md"})
 
 
+def test_plan_evidence_files_are_bounded_existing_and_read_only(tmp_path) -> None:
+    (tmp_path / "README.md").write_text("change\n")
+    evidence = tmp_path / "portal/app/dogfood.py"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("evidence\n")
+    service = DogfoodService(config(tmp_path))
+    plan = {"files": ["README.md"], "evidence_files": ["portal/app/dogfood.py"]}
+
+    assert service._validate_run_plan(plan, {"README.md"}, tmp_path) == {"README.md"}
+    assert service._validate_evidence_files(plan, tmp_path) == {"portal/app/dogfood.py"}
+
+    with pytest.raises(DogfoodError, match="does not exist"):
+        service._validate_run_plan(
+            {"files": ["README.md"], "evidence_files": ["docs/missing.md"]},
+            None,
+            tmp_path,
+        )
+    with pytest.raises(DogfoodError, match="read-only evidence-file limit"):
+        service._validate_evidence_files(
+            {"evidence_files": ["README.md", "pyproject.toml", "setup.sh", ".env.example"]},
+            tmp_path,
+        )
+    with pytest.raises(DogfoodError, match="must not also be changed"):
+        service._validate_run_plan(
+            {"files": ["README.md"], "evidence_files": ["README.md"]}, None, tmp_path
+        )
+
+
+def test_critic_prompt_requires_evidence_grounding() -> None:
+    prompt = DogfoodService._critic_system_prompt()
+    planner = DogfoodService._planner_system_prompt()
+
+    assert "requirements, never evidence" in prompt
+    assert "supported by the complete diff" in prompt
+    assert "blocking high-severity finding" in prompt
+    assert "evidence_files" in planner
+
+
 def test_signed_webhook_selects_only_the_configured_ready_issue(tmp_path) -> None:
     service = DogfoodService(config(tmp_path))
     body = b'{"action":"opened"}'
@@ -943,14 +981,11 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
         }
     ]
     client = repair_client()
+    critic = AsyncMock(return_value={"pass": True, "feedback": "ok", "findings": []})
 
     with (
         patch.object(service, "_comment", new=AsyncMock()),
-        patch.object(
-            service,
-            "_json_completion",
-            new=AsyncMock(return_value={"pass": True, "feedback": "ok", "findings": []}),
-        ),
+        patch.object(service, "_json_completion", new=critic),
     ):
         await service._repair_pass(
             record,
@@ -960,6 +995,7 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
             {"files": ["README.md"]},
             {"README.md"},
             {},
+            "<file path=\"portal/app/dogfood.py\">bounded evidence</file>",
         )
 
     assert record.critic_repair_count == 1
@@ -970,6 +1006,9 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
     repair_prompt = client.chat_with_usage.await_args.kwargs["messages"][-1]["content"]
     assert "Structured findings" in repair_prompt
     assert "Broken behavior" in repair_prompt
+    critic_prompt = critic.await_args.kwargs["messages"][-1]["content"]
+    assert "requirements, not evidence" in critic_prompt
+    assert "bounded evidence" in critic_prompt
 
 
 @pytest.mark.asyncio
