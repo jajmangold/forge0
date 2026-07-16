@@ -728,7 +728,9 @@ class DogfoodService:
             self.store.save(record)
             implementation: dict[str, Any] = {}
             applied: list[str] = []
-            for target_file in sorted(planned_files):
+            for target_file in self._implementation_target_order(
+                workspace.repo_path, planned_files
+            ):
                 file_context = self._planned_file_context(workspace.repo_path, {target_file})
                 contract_context = self._planned_contract_context(
                     workspace.repo_path, planned_files - {target_file}
@@ -1598,6 +1600,11 @@ class DogfoodService:
                 return set(planned_files)
             implicated.add(path)
         return implicated or set(planned_files)
+
+    @staticmethod
+    def _implementation_target_order(root: Path, planned_files: set[str]) -> list[str]:
+        """Create new files before asking the coder to integrate them into existing files."""
+        return sorted(planned_files, key=lambda name: ((root / name).is_file(), name))
 
     @staticmethod
     def _single_target_change(changes: Any, target_file: str) -> dict[str, Any]:
