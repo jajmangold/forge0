@@ -242,6 +242,27 @@ def test_single_target_change_passes_one_or_coalesces_exact_replacements() -> No
     }
 
 
+def test_implementation_target_order_creates_new_files_before_integration(tmp_path) -> None:
+    existing = tmp_path / "portal/app/dogfood.py"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("existing\n")
+
+    assert DogfoodService._implementation_target_order(
+        tmp_path,
+        {
+            "portal/tests/test_new.py",
+            "portal/app/dogfood.py",
+            "portal/app/new_helper.py",
+            "README.md",
+        },
+    ) == [
+        "README.md",
+        "portal/app/new_helper.py",
+        "portal/tests/test_new.py",
+        "portal/app/dogfood.py",
+    ]
+
+
 def test_single_target_change_flattens_replace_many_with_replace() -> None:
     assert DogfoodService._single_target_change(
         [
