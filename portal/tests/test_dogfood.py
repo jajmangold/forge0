@@ -14,6 +14,7 @@ from app.dogfood import (
     DogfoodConfig,
     DogfoodError,
     DogfoodService,
+    GitWorkspace,
     RunRecord,
     RunStatus,
     RunStore,
@@ -259,3 +260,20 @@ async def test_structured_completion_retries_invalid_json(tmp_path) -> None:
     assert record.correction_errors == ["planner: LLM response did not contain a JSON object"]
     correction = client.chat_with_usage.await_args_list[1].kwargs["messages"][-1]["content"]
     assert "valid JSON object only" in correction
+
+
+@pytest.mark.asyncio
+async def test_verification_returns_failure_output_for_persistence(tmp_path) -> None:
+    workspace = GitWorkspace(tmp_path / "workspace", config(tmp_path), "token")
+    workspace.repo_path.mkdir(parents=True)
+
+    with patch.object(workspace, "_run", new=AsyncMock(side_effect=DogfoodError("test output"))):
+        results = await workspace.verify()
+
+    assert results == [
+        {
+            "command": "pytest -q",
+            "success": False,
+            "output": "test output",
+        }
+    ]

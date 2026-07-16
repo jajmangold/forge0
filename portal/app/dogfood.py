@@ -355,7 +355,7 @@ class GitWorkspace:
                 results.append({"command": " ".join(command), "success": True, "output": output[-4000:]})
             except DogfoodError as exc:
                 results.append({"command": " ".join(command), "success": False, "output": str(exc)[-4000:]})
-                raise DogfoodError(f"Verification failed: {' '.join(command)}") from exc
+                break
         return results
 
     async def commit_and_push(self, message: str, branch: str) -> str:
@@ -580,6 +580,9 @@ class DogfoodService:
             self.store.save(record)
             record.verification = await workspace.verify()
             self.store.save(record)
+            failed_check = next((item for item in record.verification if not item["success"]), None)
+            if failed_check is not None:
+                raise DogfoodError(f"Verification failed: {failed_check['command']}")
 
             record.status = RunStatus.REVIEWING
             self.store.save(record)
