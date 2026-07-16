@@ -182,6 +182,17 @@ class RunStore:
                 return record
         return None
 
+    def recover_interrupted(self) -> int:
+        """Release runs whose in-process worker disappeared during a restart."""
+        recovered = 0
+        for record in self.list(limit=500):
+            if record.status in ACTIVE_STATUSES:
+                record.status = RunStatus.FAILED
+                record.error = "Run was interrupted by a portal restart; it is safe to trigger again"
+                self.save(record)
+                recovered += 1
+        return recovered
+
 
 class ChangeApplier:
     """Apply bounded structured changes without allowing path traversal."""
@@ -411,6 +422,7 @@ class DogfoodService:
     def __init__(self, config: DogfoodConfig | None = None):
         self.config = config or DogfoodConfig.from_env()
         self.store = RunStore(self.config.data_dir / "runs")
+        self.store.recover_interrupted()
         self.workspace_root = self.config.data_dir / "workspaces"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()

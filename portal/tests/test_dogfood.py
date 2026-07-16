@@ -45,6 +45,33 @@ def test_run_store_persists_records_and_deduplicates_active_issue(tmp_path) -> N
     assert store.active_for_issue("agent", "forge0", 7) is None
 
 
+def test_run_store_releases_interrupted_runs_after_restart(tmp_path) -> None:
+    store = RunStore(tmp_path / "runs")
+    interrupted = RunRecord(
+        id="run-active",
+        owner="agent",
+        repo="forge0",
+        issue_number=8,
+        issue_title="Improve",
+        status=RunStatus.VERIFYING,
+    )
+    completed = RunRecord(
+        id="run-draft",
+        owner="agent",
+        repo="forge0",
+        issue_number=9,
+        issue_title="Done",
+        status=RunStatus.DRAFT_OPENED,
+    )
+    store.save(interrupted)
+    store.save(completed)
+
+    assert store.recover_interrupted() == 1
+    assert store.load("run-active").status is RunStatus.FAILED
+    assert "restart" in store.load("run-active").error
+    assert store.load("run-draft").status is RunStatus.DRAFT_OPENED
+
+
 def test_change_applier_only_changes_planned_allowlisted_files(tmp_path) -> None:
     readme = tmp_path / "README.md"
     readme.write_text("before\n")
