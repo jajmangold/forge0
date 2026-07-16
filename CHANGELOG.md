@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- use Gitea identity across portal
 - render project docs and report outages
 - rebuild the user experience
 - coalesce target replacements safely
@@ -65,6 +66,7 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- refresh generated documentation
 - prove atomic multi-region editing
 - make diff limit proof precise
 - keep admission audit within line bound
