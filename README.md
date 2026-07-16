@@ -89,6 +89,7 @@ curl -X POST \
 - `.opencode/` — OpenCode agents, permissions, and reusable skills
 - `.gitea/` — issue/PR templates and Gitea Actions workflows
 - `containers/` — development base images
+- `kernels/` — agent-designed accelerator kernels and correctness benchmarks
 - `docs/` — architecture, governance, workflows, and research
 - `docker-compose.yaml` — local deployment
 

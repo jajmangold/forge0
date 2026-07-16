@@ -231,6 +231,7 @@ def test_config_from_environment_uses_safe_defaults(monkeypatch, tmp_path) -> No
 
     assert loaded.full_name == "agent/forge0"
     assert "portal/" in loaded.allowed_paths
+    assert "kernels/" in loaded.allowed_paths
     assert loaded.coder_model == "planner"
 
 

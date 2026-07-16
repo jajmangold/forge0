@@ -63,6 +63,7 @@ class DogfoodConfig:
         ".gitea/",
         ".opencode/",
         "docs/",
+        "kernels/",
         "portal/",
         "searxng/",
         ".env.example",
