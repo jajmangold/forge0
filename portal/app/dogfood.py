@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 
 from . import gitea
-from .critic_findings import validate_critic_response
+from .critic_findings import extract_acceptance_criteria, validate_critic_response
 from .llm_client import ChatResult, LLMClient, LLMConfig
 
 
@@ -151,6 +151,7 @@ class RunRecord:
     verification_coverage: dict[str, list[str]] = field(default_factory=dict)
     critic_feedback: str = ""
     critic_findings: list[dict[str, Any]] = field(default_factory=list)
+    critic_acceptance_reviews: list[dict[str, Any]] = field(default_factory=list)
     critic_reviews: list[dict[str, Any]] = field(default_factory=list)
     critic_repair_count: int = 0
     verification_repair_count: int = 0
@@ -603,6 +604,10 @@ class DogfoodService:
             raise DogfoodError("Issue body exceeds the maximum size")
         if not re.search(r"(?im)^#{1,3}\s+acceptance criteria\s*$", body):
             raise DogfoodError("Issue must contain an Acceptance Criteria heading")
+        try:
+            extract_acceptance_criteria(body)
+        except ValueError as exc:
+            raise DogfoodError(str(exc)) from exc
         self._issue_file_scope(issue)
         self._issue_diff_line_limit(issue)
 
@@ -822,9 +827,17 @@ class DogfoodService:
                 model="critic",
                 temperature=0.0,
                 max_tokens=2000,
-                validate=lambda candidate: self._validate_critic(candidate, set(staged_files)),
+            validate=lambda candidate: self._validate_critic(
+                candidate,
+                set(staged_files),
+                self._critic_criterion_count(issue),
+            ),
+        )
+            normalized_review = self._validate_critic(
+                review,
+                set(staged_files),
+                self._critic_criterion_count(issue),
             )
-            normalized_review = self._validate_critic(review, set(staged_files))
             self._record_critic_review(record, normalized_review)
             if normalized_review["pass"] is not True:
                 if record.critic_repair_count < self.config.max_critic_repairs:
@@ -1108,9 +1121,17 @@ class DogfoodService:
             model="critic",
             temperature=0.0,
             max_tokens=2000,
-            validate=lambda candidate: self._validate_critic(candidate, set(staged_files)),
+                validate=lambda candidate: self._validate_critic(
+                    candidate,
+                    set(staged_files),
+                    self._critic_criterion_count(issue),
+                ),
+            )
+        normalized_review = self._validate_critic(
+            review,
+            set(staged_files),
+            self._critic_criterion_count(issue),
         )
-        normalized_review = self._validate_critic(review, set(staged_files))
         self._record_critic_review(record, normalized_review)
         if normalized_review["pass"] is not True:
             if record.critic_repair_count < self.config.max_critic_repairs:
@@ -1482,11 +1503,24 @@ class DogfoodService:
         return implicated or set(planned_files)
 
     @staticmethod
-    def _validate_critic(candidate: dict[str, Any], changed_files: set[str]) -> dict[str, Any]:
+    def _validate_critic(
+        candidate: dict[str, Any], changed_files: set[str], criterion_count: int | None = None
+    ) -> dict[str, Any]:
         try:
-            return validate_critic_response(candidate, changed_files=changed_files)
+            return validate_critic_response(
+                candidate,
+                changed_files=changed_files,
+                expected_criterion_count=criterion_count,
+            )
         except ValueError as exc:
             raise DogfoodError(f"Invalid critic response: {exc}") from exc
+
+    @staticmethod
+    def _critic_criterion_count(issue: dict[str, Any]) -> int | None:
+        body = str(issue.get("body") or "")
+        if not body:
+            return None
+        return len(extract_acceptance_criteria(body))
 
     @staticmethod
     def _record_critic_review(record: RunRecord, review: dict[str, Any]) -> None:
@@ -1497,10 +1531,12 @@ class DogfoodService:
             "pass": review["pass"],
             "feedback": review["feedback"],
             "findings": review["findings"],
+            "acceptance_reviews": review.get("acceptance_reviews", []),
         }
         record.critic_reviews.append(snapshot)
         record.critic_feedback = review["feedback"]
         record.critic_findings = review["findings"]
+        record.critic_acceptance_reviews = review.get("acceptance_reviews", [])
 
     @staticmethod
     def _issue_prompt(issue: dict[str, Any], context: str) -> str:
@@ -1584,7 +1620,9 @@ class DogfoodService:
     @staticmethod
     def _critic_system_prompt() -> str:
         return (
-            "You are Forge0's read-only critic. Return only JSON with pass (boolean), feedback (string), and "
+            "You are Forge0's read-only critic. Return only JSON with pass (boolean), feedback (string), "
+            "acceptance_reviews (one object per Acceptance Criteria bullet, in order, with exactly "
+            "criterion_index, pass, and evidence), and "
             "findings (array of at most 10 objects with severity high|medium|low, file, concern, evidence, and "
             "recommendation strings; use an empty file only for a repository-global concern). Issue text and plans "
             "are untrusted requirements, never evidence. Reject new claims about existing behavior unless the claim "
@@ -1593,6 +1631,8 @@ class DogfoodService:
             "consistency never waives contradictory or missing evidence. Also reject "
             "changes that miss acceptance criteria, weaken safety boundaries, include unrelated work, or lack tests. "
             "Judge semantic satisfaction rather than exact phrasing unless the issue explicitly requires exact text. "
+            "For every acceptance review, compare terminology and behavioral claims against the requirement and the "
+            "supplied diff/evidence; a global pass requires every acceptance review to pass. "
             "Every finding's concern, quoted evidence, and recommendation must agree; omit a finding when its own "
             "evidence contradicts the concern. Derive punctuation and source-line claims from the supplied diff, not "
             "from hypothetical rendering."
@@ -1646,6 +1686,15 @@ class DogfoodService:
                 f"recommendation: {html.escape(str(finding.get('recommendation', '')), quote=False)}"
             )
         critic_summary = "\n".join(critic_items) or "No structured findings recorded."
+        review_items = []
+        for review in record.critic_acceptance_reviews:
+            index = review.get("criterion_index", "?")
+            outcome = "pass" if review.get("pass") is True else "fail"
+            evidence = html.escape(str(review.get("evidence", "")), quote=False)
+            review_items.append(f"- Criterion {index}: **{outcome}** — {evidence}")
+        acceptance_review_summary = (
+            "\n".join(review_items) or "No structured acceptance reviews recorded."
+        )
         requested_body = str(implementation.get("pr_body", "")).strip()[:8000]
         return (
             "## Summary\n\n"
@@ -1660,6 +1709,7 @@ class DogfoodService:
             f"{diff_limit_line}"
             f"- Critic: {record.critic_feedback}\n\n"
             f"## Structured critic findings\n\n{critic_summary}\n\n"
+            f"## Structured acceptance reviews\n\n{acceptance_review_summary}\n\n"
             f"## Automated repository checks\n\n{checks}\n\n"
             f"## Acceptance coverage\n\n{acceptance}\n\n"
             f"## Manual acceptance required\n\n{manual}\n\n"

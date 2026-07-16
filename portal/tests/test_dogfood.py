@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from app import main
+from app.critic_findings import extract_acceptance_criteria
 from app.dogfood import (
     ChangeApplier,
     DogfoodConfig,
@@ -351,6 +352,15 @@ def test_issue_diff_line_limit_rejects_malformed_values(tmp_path, body: str, err
 
     with pytest.raises(DogfoodError, match=error):
         service._issue_diff_line_limit({"body": body})
+
+
+def test_acceptance_criteria_extractor_is_bounded_and_heading_scoped() -> None:
+    body = "# Acceptance Criteria\n- first  item\n* second\n#### Next\n- ignored"
+    assert extract_acceptance_criteria(body) == ["first item", "second"]
+    with pytest.raises(ValueError, match="exactly one"):
+        extract_acceptance_criteria(body + "\n## Acceptance Criteria\n- duplicate")
+    with pytest.raises(ValueError, match="at least one"):
+        extract_acceptance_criteria("## Acceptance Criteria\nprose only")
 
 
 def test_plan_cannot_escape_issue_file_scope_and_legacy_plan_is_unchanged(tmp_path) -> None:
@@ -837,6 +847,7 @@ def test_run_record_loads_without_verification_coverage() -> None:
     ).to_dict()
     old_data.pop("verification_coverage")
     old_data.pop("critic_findings")
+    old_data.pop("critic_acceptance_reviews")
     old_data.pop("critic_reviews")
     old_data.pop("llm_budget_admissions")
     old_data.pop("issue_diff_line_limit")
@@ -844,6 +855,7 @@ def test_run_record_loads_without_verification_coverage() -> None:
     loaded = RunRecord.from_dict(old_data)
     assert loaded.verification_coverage == {}
     assert loaded.critic_findings == []
+    assert loaded.critic_acceptance_reviews == []
     assert loaded.critic_reviews == []
     assert loaded.llm_budget_admissions == []
     assert loaded.issue_diff_line_limit is None
@@ -876,8 +888,8 @@ def test_critic_review_history_preserves_attempts_and_latest_fields() -> None:
     DogfoodService._record_critic_review(record, second)
 
     assert record.critic_reviews == [
-        {"attempt": 1, "repair_count": 0, **first},
-        {"attempt": 2, "repair_count": 1, **second},
+        {"attempt": 1, "repair_count": 0, **first, "acceptance_reviews": []},
+        {"attempt": 2, "repair_count": 1, **second, "acceptance_reviews": []},
     ]
     assert record.critic_feedback == "fixed"
     assert record.critic_findings == []
@@ -922,6 +934,35 @@ def test_critic_adapter_normalizes_and_rejects_invalid_responses() -> None:
 
     with pytest.raises(DogfoodError, match="Invalid critic response"):
         DogfoodService._validate_critic({"pass": True, "feedback": "missing"}, {"README.md"})
+
+    reviewed = DogfoodService._validate_critic(
+        {
+            "pass": True,
+            "feedback": "grounded",
+            "findings": [],
+            "acceptance_reviews": [
+                {"criterion_index": 1, "pass": True, "evidence": " exact <line> "}
+            ],
+        },
+        {"README.md"},
+        1,
+    )
+    assert reviewed["acceptance_reviews"] == [
+        {"criterion_index": 1, "pass": True, "evidence": "exact &lt;line&gt;"}
+    ]
+    with pytest.raises(DogfoodError, match="acceptance review fails"):
+        DogfoodService._validate_critic(
+            {
+                "pass": True,
+                "feedback": "wrong",
+                "findings": [],
+                "acceptance_reviews": [
+                    {"criterion_index": 1, "pass": False, "evidence": "mismatch"}
+                ],
+            },
+            {"README.md"},
+            1,
+        )
 
 
 def test_pull_body_separates_checks_and_manual_coverage(tmp_path) -> None:
@@ -980,11 +1021,16 @@ def test_pull_body_reports_declared_and_effective_diff_limit(tmp_path) -> None:
         issue_title="Limit docs",
         changed_files=["README.md"],
         issue_diff_line_limit=600,
+        critic_acceptance_reviews=[
+            {"criterion_index": 1, "pass": True, "evidence": "changed &lt;term&gt;"}
+        ],
     )
 
     body = DogfoodService(config(tmp_path))._pull_body(record, {}, "abc123")
 
     assert "Issue diff line limit: `600` (effective cap: `500`)" in body
+    assert "Criterion 1: **pass**" in body
+    assert "&amp;lt;term&amp;gt;" in body
 
 
 def test_pull_body_safely_renders_structured_critic_findings(tmp_path) -> None:
@@ -1341,7 +1387,16 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
         }
     ]
     client = repair_client()
-    critic = AsyncMock(return_value={"pass": True, "feedback": "ok", "findings": []})
+    critic = AsyncMock(
+        return_value={
+            "pass": True,
+            "feedback": "ok",
+            "findings": [],
+            "acceptance_reviews": [
+                {"criterion_index": 1, "pass": True, "evidence": "fixed in diff"}
+            ],
+        }
+    )
 
     with (
         patch.object(service, "_comment", new=AsyncMock()),
@@ -1377,6 +1432,9 @@ async def test_critic_repair_regenerates_verifies_and_passes(tmp_path) -> None:
             "pass": True,
             "feedback": "ok",
             "findings": [],
+            "acceptance_reviews": [
+                {"criterion_index": 1, "pass": True, "evidence": "fixed in diff"}
+            ],
         }
     ]
 
