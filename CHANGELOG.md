@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- add bounded multi-frontier research lab
+- add experimental ragged RRC-SwiGLU kernel
 - discover recurring failures
 - add immutable portal release gates
 - supervise durable queued runs
@@ -40,6 +42,8 @@
 - initial Forge0 agent platform
 
 ### Fixed
+- exercise requested maximum row length
+- report honest algorithmic bandwidth
 - enqueue bounded discovered issues
 - reuse reproducible release images
 - isolate writable release state
@@ -82,6 +86,8 @@
 - use internal callback URL for hooks
 
 ### Documentation
+- align run targets and measured guide
+- refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
 - refresh generated documentation
