@@ -156,3 +156,78 @@ def test_lab_page_and_api_use_the_durable_queue(tmp_path, monkeypatch):
     assert queued.status_code == 202
     assert queued.json()["status"] == "queued"
     assert client.get(f"/api/experiments/{queued.json()['id']}").status_code == 200
+
+
+def test_experiment_detail_shows_candidates_frontier_budgets_and_wandb(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITEA_OAUTH_CLIENT_ID", raising=False)
+    queue = ExperimentQueue(tmp_path / "experiments.sqlite3")
+    monkeypatch.setattr(main, "_experiment_queue", queue)
+    record = queue.enqueue(ExperimentSubmission(method="optuna", harness="rrc-swiglu-launch"))
+    assert queue.claim("v100", "worker-1") is not None
+    queue.finish(
+        record.id,
+        "worker-1",
+        result={
+            "elapsed_seconds": 4.25,
+            "objectives": OBJECTIVES,
+            "candidates": [
+                {"id": "fast", "feasible": True, "metrics": {"latency": 1, "quality": 7}},
+                {"id": "quality", "feasible": True, "metrics": {"latency": 2, "quality": 9}},
+                {"id": "dominated", "feasible": True, "metrics": {"latency": 3, "quality": 7}},
+            ],
+            "frontier": [{"id": "fast"}, {"id": "quality"}],
+            "wandb": {"mode": "offline", "run_id": record.id},
+        },
+    )
+
+    response = TestClient(main.app).get(f"/experiments/{record.id}")
+
+    assert response.status_code == 200
+    for expected in (
+        "4.25s",
+        "v100",
+        "fast",
+        "quality",
+        "dominated",
+        "Frontier",
+        "minimize",
+        "maximize",
+        "wall seconds",
+        "offline",
+        record.id,
+    ):
+        assert expected in response.text
+
+
+def test_experiment_detail_bounds_failure_output(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITEA_OAUTH_CLIENT_ID", raising=False)
+    queue = ExperimentQueue(tmp_path / "experiments.sqlite3")
+    monkeypatch.setattr(main, "_experiment_queue", queue)
+    record = queue.enqueue(
+        ExperimentSubmission(
+            method="sage",
+            harness="sage-expression",
+            parameters={"expression": "factor(x^2 - 1)"},
+        )
+    )
+    assert queue.claim("sage", "sage-1") is not None
+    queue.finish(record.id, "sage-1", error="bounded failure " + "x" * 2000)
+
+    response = TestClient(main.app).get(f"/experiments/{record.id}")
+
+    assert response.status_code == 200
+    assert "failed" in response.text
+    assert "bounded failure" in response.text
+    assert "x" * 1001 not in response.text
+    assert "factor(x^2 - 1)" not in response.text
+
+
+def test_experiment_detail_unknown_id_is_useful_404(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITEA_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.setattr(main, "_experiment_queue", ExperimentQueue(tmp_path / "experiments.sqlite3"))
+
+    response = TestClient(main.app).get("/experiments/exp-missing")
+
+    assert response.status_code == 404
+    assert "Experiment not found" in response.text
+    assert "Research lab" in response.text
