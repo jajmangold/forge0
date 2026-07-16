@@ -28,6 +28,7 @@
 #include <chrono>
 #include <random>
 #include <cassert>
+#include <limits>
 #include <getopt.h>
 
 // Include the kernel header
@@ -282,14 +283,18 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Error: num_rows, max_row_len, iterations must be positive.\n");
         return 1;
     }
+    if (static_cast<long long>(num_rows) * max_row_len > std::numeric_limits<int>::max()) {
+        fprintf(stderr, "Error: requested shape exceeds 32-bit row-offset capacity.\n");
+        return 1;
+    }
     if (!std::isfinite(eps) || eps <= 0.0f || !std::isfinite(threshold) ||
         !std::isfinite(sharpness) || !std::isfinite(abs_tol) || !std::isfinite(rel_tol) ||
         abs_tol < 0.0f || rel_tol < 0.0f) {
         fprintf(stderr, "Error: floating-point parameters must be finite, epsilon positive, and tolerances nonnegative.\n");
         return 1;
     }
-    if (block_size <= 0 || block_size > 1024 || (block_size & (block_size - 1)) != 0) {
-        fprintf(stderr, "Error: block_size must be a power of 2 between 1 and 1024.\n");
+    if (block_size < 32 || block_size > 1024 || block_size % 32 != 0) {
+        fprintf(stderr, "Error: block_size must be a multiple of 32 between 32 and 1024.\n");
         return 1;
     }
 
@@ -300,7 +305,7 @@ int main(int argc, char* argv[]) {
 
     // Deterministic pattern for ragged rows (covers empty, 1, odd, non-warp-multiple, large)
     // Includes empty, singleton, odd, warp-boundary, and greater-than-block rows.
-    std::vector<int> pattern = {0, 1, 3, 31, 32, 33, 127, 128, 255, 256, 511, 1025};
+    std::vector<int> pattern = {0, 1, 3, 31, 32, 33, 127, 128, 255, 256, 511, max_row_len};
     for (int& len : pattern) {
         len = std::min(len, max_row_len);
     }
