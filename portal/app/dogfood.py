@@ -1611,13 +1611,19 @@ class DogfoodService:
         """Normalize bounded same-target replacements into one atomic change."""
         if not isinstance(changes, list) or not changes:
             raise DogfoodError("Coder changes must be a non-empty array")
-        if len(changes) == 1:
-            change = changes[0]
-            if not isinstance(change, dict) or change.get("path") != target_file:
-                raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
-            return change
         if len(changes) > 12:
             raise DogfoodError("Coder returned more than 12 changes for one target file")
+        target_changes = [
+            change
+            for change in changes
+            if isinstance(change, dict) and change.get("path") == target_file
+        ]
+        if not target_changes:
+            raise DogfoodError(f"Coder returned the wrong target file; expected {target_file}")
+        changes = target_changes
+        if len(changes) == 1:
+            change = changes[0]
+            return change
 
         replacements: list[dict[str, str]] = []
         for change in changes:
@@ -1768,7 +1774,14 @@ class DogfoodService:
         verification_diagnostic: str = "",
         contract_context: str = "",
     ) -> str:
-        prompt = (
+        target_assignment = ""
+        if target_file:
+            target_assignment = (
+                f"TARGET ASSIGNMENT: edit only `{target_file}` in this response. This is one step of a "
+                "multi-file implementation; other planned files are handled by separate calls. Return exactly "
+                f"one change whose path is `{target_file}`.\n\n"
+            )
+        prompt = target_assignment + (
             f"Issue:\n{issue.get('title')}\n{issue.get('body', '')}\n\n"
             f"Approved plan:\n{json.dumps(plan, indent=2)}\n\nApproved file contents:\n{files}"
         )

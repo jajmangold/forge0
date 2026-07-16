@@ -298,13 +298,6 @@ def test_single_target_change_flattens_replace_many_with_replace() -> None:
         (
             [
                 {"path": "README.md", "operation": "replace", "old": "a", "new": "b"},
-                {"path": "other.md", "operation": "replace", "old": "c", "new": "d"},
-            ],
-            "wrong target",
-        ),
-        (
-            [
-                {"path": "README.md", "operation": "replace", "old": "a", "new": "b"},
                 {"path": "README.md", "operation": "rewrite", "old": "c", "new": "d"},
             ],
             "all use replace",
@@ -321,6 +314,16 @@ def test_single_target_change_flattens_replace_many_with_replace() -> None:
 def test_single_target_change_rejects_unsafe_shapes(changes, error: str) -> None:
     with pytest.raises(DogfoodError, match=error):
         DogfoodService._single_target_change(changes, "README.md")
+
+
+def test_single_target_change_selects_only_requested_path() -> None:
+    assert DogfoodService._single_target_change(
+        [
+            {"path": "other.md", "operation": "rewrite", "content": "ignored\n"},
+            {"path": "README.md", "operation": "replace", "old": "a", "new": "b"},
+        ],
+        "README.md",
+    ) == {"path": "README.md", "operation": "replace", "old": "a", "new": "b"}
 
 
 def test_coalesced_target_replacements_keep_overlap_check_transactional(tmp_path) -> None:
