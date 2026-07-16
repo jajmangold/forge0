@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -25,7 +25,7 @@ class AgentState:
         """Save agent state as issue comment."""
         state_data = {
             "agent": agent_name,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "state": state,
         }
         
@@ -117,9 +117,9 @@ class WorkflowState:
             )
             
             if resp.status_code == 200:
-                current_labels = [l["name"] for l in resp.json()]
+                current_labels = [label["name"] for label in resp.json()]
                 # Remove old status labels
-                new_labels = [l for l in current_labels if not l.startswith("status:")]
+                new_labels = [label for label in current_labels if not label.startswith("status:")]
                 new_labels.append(f"status:{status}")
                 
                 await client.put(

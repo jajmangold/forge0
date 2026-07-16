@@ -43,7 +43,7 @@ class Agent(ABC):
             return AgentResult(success=False, error=str(e))
 
     @abstractmethod
-    async def execute(self, **kwargs) -> AgentResult:
+    async def execute(self, **kwargs: Any) -> AgentResult:
         """Execute the agent's task. Subclasses implement this."""
         ...
 
@@ -57,8 +57,10 @@ class ResearchAgent(Agent):
         super().__init__(llm)
         self.search_fn = search_fn
 
-    async def execute(self, topic: str, context: str = "", **kwargs) -> AgentResult:
+    async def execute(self, **kwargs: Any) -> AgentResult:
         """Research a topic by searching the web and synthesizing results."""
+        topic = str(kwargs["topic"])
+        context = str(kwargs.get("context", ""))
         # Search
         query = f"{topic} best practices comparison 2025 2026"
         results = []
@@ -105,8 +107,10 @@ class CriticAgent(Agent):
 
     role = "critic"
 
-    async def execute(self, artifact: str, criteria: list[str], **kwargs) -> AgentResult:
+    async def execute(self, **kwargs: Any) -> AgentResult:
         """Not used directly — use evaluate() instead."""
+        artifact = str(kwargs["artifact"])
+        criteria = list(kwargs["criteria"])
         result = await self.evaluate(artifact=artifact, criteria=criteria)
         return AgentResult(
             success=result.passed,
@@ -155,8 +159,10 @@ class RequirementsAgent(Agent):
 
     role = "requirements"
 
-    async def execute(self, user_request: str, context: str = "", **kwargs) -> AgentResult:
+    async def execute(self, **kwargs: Any) -> AgentResult:
         """Generate structured requirements from a user request."""
+        user_request = str(kwargs["user_request"])
+        context = str(kwargs.get("context", ""))
         prompt = f"""You are a requirements agent. Generate a structured requirement specification.
 
 User request: {user_request}
@@ -180,8 +186,9 @@ class ArchitectureAgent(Agent):
 
     role = "architecture"
 
-    async def execute(self, requirement: str, **kwargs) -> AgentResult:
+    async def execute(self, **kwargs: Any) -> AgentResult:
         """Propose architecture based on requirements."""
+        requirement = str(kwargs["requirement"])
         prompt = f"""You are an architecture agent. Propose technical decisions for this project.
 
 Requirement:

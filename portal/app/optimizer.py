@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
+
+optuna: Any = None
 
 try:
-    import optuna
+    import optuna as _optuna  # pyright: ignore[reportMissingImports]
+    optuna = _optuna
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False

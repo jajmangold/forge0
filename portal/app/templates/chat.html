@@ -248,13 +248,16 @@ What would you like to know?
             document.getElementById('sendBtn').disabled = true;
             
             try {
-                const response = await fetch(`/api/chat/${owner}/${repo}`, {
+                const response = await fetch(`/api/chat/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query, history })
                 });
                 
                 const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || `Request failed (${response.status})`);
+                }
                 
                 // Remove typing indicator
                 removeTypingIndicator(typingId);
@@ -268,7 +271,7 @@ What would you like to know?
                 
             } catch (error) {
                 removeTypingIndicator(typingId);
-                addMessage('Sorry, something went wrong. Please try again.', 'assistant');
+                addMessage(error.message || 'Sorry, something went wrong. Please try again.', 'assistant');
             }
             
             // Re-enable send button
@@ -280,14 +283,12 @@ What would you like to know?
             const div = document.createElement('div');
             div.className = `message message-${role}`;
             
-            // Simple markdown rendering
-            let html = content
-                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\n/g, '<br>');
-            
-            div.innerHTML = `<div class="message-content">${html}</div>`;
+            // Treat user and model output as text. LLM output is untrusted and must
+            // never be inserted as HTML.
+            const messageContent = document.createElement('div');
+            messageContent.className = 'message-content';
+            messageContent.textContent = content;
+            div.appendChild(messageContent);
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
         }

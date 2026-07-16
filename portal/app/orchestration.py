@@ -83,8 +83,8 @@ class WorkflowState:
 
         try:
             idx = PHASE_ORDER.index(self.current_phase)
-        except ValueError:
-            raise ValueError(f"Unknown phase: {self.current_phase}")
+        except ValueError as exc:
+            raise ValueError(f"Unknown phase: {self.current_phase}") from exc
 
         if idx >= len(PHASE_ORDER) - 1:
             raise ValueError("Cannot advance: already at final phase")

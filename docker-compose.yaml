@@ -1,6 +1,6 @@
 services:
   gitea:
-    image: gitea/gitea:latest
+    image: gitea/gitea:1.27.0
     container_name: forge0
     restart: unless-stopped
     mem_limit: 4g
@@ -54,7 +54,7 @@ services:
   portal:
     build:
       context: ./portal
-      dockerfile: ../containers/base-python/Dockerfile
+      dockerfile: Dockerfile
     image: forge0-portal:latest
     container_name: forge0-portal
     restart: unless-stopped
@@ -67,22 +67,35 @@ services:
       GITEA_TOKEN: ${GITEA_API_TOKEN}
       GITEA_ADMIN_USER: ${GITEA_ADMIN_USER:-agent}
       GITEA_ADMIN_PASS: ${GITEA_ADMIN_PASS:-agentpass123}
+      GITEA_AUTO_LOGIN: ${GITEA_AUTO_LOGIN:-false}
       SEARXNG_URL: http://searxng:8080
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}
       LLM_PLANNER_MODEL: ${LLM_PLANNER_MODEL:-mimo-v2.5-pro}
       LLM_WORKER_MODEL: ${LLM_WORKER_MODEL:-mimo-v2.5}
       LLM_CRITIC_MODEL: ${LLM_CRITIC_MODEL:-mimo-v2.5}
-      WANDB_URL: http://wandb:8080
-      WANDB_PASSWORD: ${WANDB_PASSWORD}
+      FORGE0_SELF_REPO: ${FORGE0_SELF_REPO:-agent/forge0}
+      FORGE0_DATA_DIR: /var/lib/forge0
+      FORGE0_OPERATOR_TOKEN: ${FORGE0_OPERATOR_TOKEN:-}
+      FORGE0_WEBHOOK_SECRET: ${FORGE0_WEBHOOK_SECRET:-}
+      FORGE0_DOGFOOD_LABEL: ${FORGE0_DOGFOOD_LABEL:-agent:ready}
+      FORGE0_MAX_CHANGED_FILES: ${FORGE0_MAX_CHANGED_FILES:-5}
+      FORGE0_MAX_DIFF_LINES: ${FORGE0_MAX_DIFF_LINES:-500}
+      FORGE0_RUN_TOKEN_BUDGET: ${FORGE0_RUN_TOKEN_BUDGET:-50000}
+    volumes:
+      - dogfood-data:/var/lib/forge0
     depends_on:
       gitea:
         condition: service_healthy
-      wandb:
-        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3001/readyz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng@sha256:268fdb05efbb7b4fdc5957a20c42389bfb1b1b27b5eddeb98f75ec80c45b960f
     container_name: forge0-search
     restart: unless-stopped
     mem_limit: 512m
@@ -97,11 +110,12 @@ services:
       SEARXNG_SECRET: "${SEARXNG_SECRET_KEY:-forge0-super-secret-key-change-me}"
 
   wandb:
-    image: wandb/local:latest
+    image: wandb/local@sha256:c9edd35abe64ebf91a090782696c9db82c37272fa6863579bc3da871df35b138
     container_name: forge0-wandb
     restart: unless-stopped
     mem_limit: 2g
     mem_reservation: 512m
+    profiles: ["observability"]
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -110,32 +124,30 @@ services:
       LOCAL_USERNAME: admin
       LOCAL_PASSWORD: ${WANDB_PASSWORD:-forge0-wandb-admin}
     healthcheck:
-      test: ["CMD", "curl", "-fsSL", "http://localhost:8080/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 30s
       timeout: 10s
       retries: 5
 
   optuna:
-    image: python:3.12-slim
+    image: python:3.12-slim@sha256:c3d81d25b3154142b0b42eb1e61300024426268edeb5b5a26dd7ddf64d9daf28
     container_name: forge0-optuna
-    restart: unless-stopped
+    restart: "no"
     mem_limit: 1g
     mem_reservation: 256m
-    command: >
-      sh -c "pip install --no-cache-dir optuna && python -c \"
-import optuna
-import os
-study = optuna.create_study(
-    study_name='forge0',
-    storage='sqlite:///data/optuna.db',
-    load_if_exists=True
-)
-print('Optuna study ready')
-\""
+    profiles: ["optimization"]
+    command:
+      - sh
+      - -c
+      - >-
+        pip install --no-cache-dir optuna
+        && python -c "import optuna; optuna.create_study(study_name='forge0',
+        storage='sqlite:///data/optuna.db', load_if_exists=True); print('Optuna study ready')"
     volumes:
       - optuna-data:/data
 
 volumes:
+  dogfood-data:
   searxng-data:
   wandb-data:
   optuna-data:

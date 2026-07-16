@@ -1,12 +1,11 @@
 """Agent coordination - Multiple agents working together."""
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -44,8 +43,9 @@ class Task:
     dependencies: list[str] = field(default_factory=list)
     result: Any = None
     error: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    issue_number: int | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class AgentLock:
@@ -64,14 +64,14 @@ class AgentLock:
             lock = self.locks[resource]
             if lock["agent"] != agent:
                 # Check if lock expired
-                elapsed = (datetime.now(timezone.utc) - lock["acquired_at"]).seconds
+                elapsed = (datetime.now(UTC) - lock["acquired_at"]).total_seconds()
                 if elapsed < lock["timeout"]:
                     return False
         
         # Acquire lock
         self.locks[resource] = {
             "agent": agent,
-            "acquired_at": datetime.now(timezone.utc),
+            "acquired_at": datetime.now(UTC),
             "timeout": timeout,
         }
         return True
@@ -87,7 +87,7 @@ class AgentLock:
             return False
         
         lock = self.locks[resource]
-        elapsed = (datetime.now(timezone.utc) - lock["acquired_at"]).seconds
+        elapsed = (datetime.now(UTC) - lock["acquired_at"]).total_seconds()
         return elapsed < lock["timeout"]
 
 
@@ -120,8 +120,7 @@ class AgentCoordinator:
         self.tasks[task_id] = task
         
         # Create Gitea issue for tracking
-        issue_number = await self._create_issue(task)
-        task.id = f"{task_id}-{issue_number}"
+        task.issue_number = await self._create_issue(task)
         
         return task
     
@@ -131,7 +130,7 @@ class AgentCoordinator:
             task = self.tasks[task_id]
             task.assigned_to = agent
             task.status = TaskStatus.IN_PROGRESS
-            task.updated_at = datetime.now(timezone.utc)
+            task.updated_at = datetime.now(UTC)
             
             # Update Gitea issue
             await self._update_issue_status(task)
@@ -142,7 +141,7 @@ class AgentCoordinator:
             task = self.tasks[task_id]
             task.status = TaskStatus.COMPLETED
             task.result = result
-            task.updated_at = datetime.now(timezone.utc)
+            task.updated_at = datetime.now(UTC)
             
             # Update Gitea issue
             await self._update_issue_status(task)
@@ -153,7 +152,7 @@ class AgentCoordinator:
             task = self.tasks[task_id]
             task.status = TaskStatus.FAILED
             task.error = error
-            task.updated_at = datetime.now(timezone.utc)
+            task.updated_at = datetime.now(UTC)
             
             # Update Gitea issue
             await self._update_issue_status(task)
@@ -186,7 +185,7 @@ class AgentCoordinator:
             "failed": sum(1 for t in self.tasks.values() if t.status == TaskStatus.FAILED),
         }
     
-    async def _create_issue(self, task: Task) -> int:
+    async def _create_issue(self, task: Task) -> int | None:
         """Create Gitea issue for task."""
         async with httpx.AsyncClient(timeout=15, verify=False) as client:
             resp = await client.post(
@@ -195,43 +194,30 @@ class AgentCoordinator:
                 json={
                     "title": f"[Agent] {task.title}",
                     "body": task.description,
-                    "labels": ["status:pending", f"agent:{task.assigned_to.value}" if task.assigned_to else ""],
                 },
             )
             
             if resp.status_code == 201:
                 return resp.json()["number"]
-            return -1
+            return None
     
     async def _update_issue_status(self, task: Task):
         """Update Gitea issue status."""
-        # Extract issue number from task ID
-        parts = task.id.split("-")
-        if len(parts) >= 3:
-            issue_number = int(parts[-1])
-            
-            async with httpx.AsyncClient(timeout=15, verify=False) as client:
-                # Update labels
-                labels = [f"status:{task.status.value}"]
-                if task.assigned_to:
-                    labels.append(f"agent:{task.assigned_to.value}")
-                
-                await client.put(
-                    f"{GITEA_INTERNAL}/api/v1/repos/{self.owner}/{self.repo}/issues/{issue_number}/labels",
-                    headers=self.headers,
-                    json={"labels": labels},
-                )
-                
-                # Add comment with result
-                if task.status == TaskStatus.COMPLETED:
-                    await client.post(
-                        f"{GITEA_INTERNAL}/api/v1/repos/{self.owner}/{self.repo}/issues/{issue_number}/comments",
-                        headers=self.headers,
-                        json={"body": f"✅ Task completed\n\nResult: {task.result}"},
-                    )
-                elif task.status == TaskStatus.FAILED:
-                    await client.post(
-                        f"{GITEA_INTERNAL}/api/v1/repos/{self.owner}/{self.repo}/issues/{issue_number}/comments",
-                        headers=self.headers,
-                        json={"body": f"❌ Task failed\n\nError: {task.error}"},
-                    )
+        if task.issue_number is None:
+            return
+
+        body = f"Agent task status: **{task.status.value}**"
+        if task.assigned_to:
+            body += f"\n\nAssigned to: `{task.assigned_to.value}`"
+        if task.status == TaskStatus.COMPLETED:
+            body += f"\n\nResult: {task.result}"
+        elif task.status == TaskStatus.FAILED:
+            body += f"\n\nError: {task.error}"
+
+        async with httpx.AsyncClient(timeout=15, verify=False) as client:
+            response = await client.post(
+                f"{GITEA_INTERNAL}/api/v1/repos/{self.owner}/{self.repo}/issues/{task.issue_number}/comments",
+                headers=self.headers,
+                json={"body": body},
+            )
+            response.raise_for_status()

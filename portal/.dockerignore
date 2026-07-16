@@ -1,6 +1,5 @@
 .git
 docs
-tests
 *.md
 .env
 .env.*

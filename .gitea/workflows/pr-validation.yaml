@@ -4,6 +4,26 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
+  quality:
+    name: Portal Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r portal/requirements.txt -r portal/requirements-dev.txt
+      - name: Unit tests
+        run: pytest
+      - name: Lint
+        run: ruff check .
+      - name: Type check
+        run: pyright portal/app
+      - name: Validate Compose
+        run: docker compose config --quiet
+
   validate-branch:
     name: Validate Branch Name
     runs-on: ubuntu-latest
@@ -29,13 +49,13 @@ jobs:
       - name: Check conventional commits
         run: |
           INVALID=0
-          git log origin/main..HEAD --format="%H %s" | while read hash msg; do
+          while read -r hash msg; do
             if [[ ! "$msg" =~ ^(feat|fix|docs|test|refactor|perf|chore|ci)(\(.+\))?!?: ]]; then
               echo "❌ Invalid commit message: $msg"
               echo "   Must follow: type(scope): description"
               INVALID=1
             fi
-          done
+          done < <(git log origin/main..HEAD --format="%H %s")
           if [ "$INVALID" -eq 1 ]; then
             exit 1
           fi

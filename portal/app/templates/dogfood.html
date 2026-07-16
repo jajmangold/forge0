@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Forge0 — Self-extension{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+  <div class="page-header">
+    <div>
+      <h1>Self-extension</h1>
+      <p>Issue-to-draft-PR runs for <code>{{ config.full_name }}</code>.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h3>Safety boundary</h3></div>
+    <div class="readme-body">
+      <p>Runs require the <code>{{ config.trigger_label }}</code> label and an
+      <code>Acceptance Criteria</code> section. Forge0 works in a disposable clone,
+      verifies the patch, and stops after opening a draft pull request.</p>
+      <p>Manual trigger:</p>
+      <pre>curl -X POST \
+  -H "X-Forge0-Operator-Token: $FORGE0_OPERATOR_TOKEN" \
+  http://localhost:3001/api/dogfood/run/{{ config.self_owner }}/{{ config.self_repo }}/ISSUE</pre>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h3>Runs</h3></div>
+    <div id="dogfood-runs"
+         hx-get="/partials/dogfood-runs"
+         hx-trigger="every 5s"
+         hx-swap="innerHTML">
+      {% include "_dogfood_runs.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

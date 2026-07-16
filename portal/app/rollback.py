@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-import httpx
 
 
 @dataclass
@@ -21,6 +17,7 @@ class Checkpoint:
     message: str
     created_at: datetime
     files_changed: list[str]
+    worktree_sha: str | None = None
 
 
 class RollbackManager:
@@ -33,9 +30,6 @@ class RollbackManager:
     async def create_checkpoint(self, message: str) -> Checkpoint | None:
         """Create a checkpoint before making changes."""
         try:
-            # Stage all changes
-            await self._run_git("add", "-A")
-            
             # Get current commit
             result = await self._run_git("rev-parse", "HEAD")
             commit_sha = result.strip()
@@ -45,8 +39,13 @@ class RollbackManager:
             branch = result.strip()
             
             # Get changed files
-            result = await self._run_git("diff", "--cached", "--name-only")
-            files_changed = [f for f in result.strip().split("\n") if f]
+            result = await self._run_git("status", "--porcelain")
+            files_changed = [line[3:] for line in result.splitlines() if len(line) > 3]
+
+            # `stash create` snapshots tracked working/index changes without
+            # modifying either the worktree or the user's stash list.
+            result = await self._run_git("stash", "create", f"forge0: {message}")
+            worktree_sha = result.strip() or None
             
             # Create checkpoint
             checkpoint = Checkpoint(
@@ -54,8 +53,9 @@ class RollbackManager:
                 commit_sha=commit_sha,
                 branch=branch,
                 message=message,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 files_changed=files_changed,
+                worktree_sha=worktree_sha,
             )
             self.checkpoints.append(checkpoint)
             
@@ -68,16 +68,13 @@ class RollbackManager:
     async def rollback(self, checkpoint: Checkpoint | None = None) -> bool:
         """Rollback to a checkpoint."""
         try:
-            if checkpoint:
-                # Rollback to specific checkpoint
-                await self._run_git("reset", "--hard", checkpoint.commit_sha)
-            elif self.checkpoints:
-                # Rollback to last checkpoint
-                last = self.checkpoints[-1]
-                await self._run_git("reset", "--hard", last.commit_sha)
-            else:
-                # No checkpoints, rollback all uncommitted changes
-                await self._run_git("checkout", "--", ".")
+            target = checkpoint or (self.checkpoints[-1] if self.checkpoints else None)
+            if target is None:
+                return False
+
+            await self._run_git("reset", "--hard", target.commit_sha)
+            if target.worktree_sha:
+                await self._run_git("stash", "apply", "--index", target.worktree_sha)
             
             return True
             
@@ -99,10 +96,10 @@ class RollbackManager:
             result = await func(*args, **kwargs)
             return result, True
             
-        except Exception as e:
+        except Exception:
             # Rollback on failure
             await self.rollback(checkpoint)
-            raise e
+            raise
     
     async def _run_git(self, *args: str) -> str:
         """Run git command."""
@@ -124,7 +121,15 @@ class SafeCodeChanger:
     """Make code changes safely with rollback."""
     
     def __init__(self, repo_path: str = "."):
-        self.rollback_manager = RollbackManager(repo_path)
+        self.repo_path = Path(repo_path).resolve()
+        self.rollback_manager = RollbackManager(str(self.repo_path))
+
+    def _resolve_path(self, file_path: str) -> Path:
+        """Resolve a repository-relative path and reject path traversal."""
+        path = (self.repo_path / file_path).resolve()
+        if not path.is_relative_to(self.repo_path):
+            raise ValueError(f"Path is outside repository: {file_path}")
+        return path
     
     async def edit_file(
         self,
@@ -133,12 +138,13 @@ class SafeCodeChanger:
         new_content: str,
     ) -> bool:
         """Edit file with rollback on failure."""
-        # Create checkpoint
-        checkpoint = await self.rollback_manager.create_checkpoint(f"Edit {file_path}")
-        
+        checkpoint = None
         try:
+            path = self._resolve_path(file_path)
+            checkpoint = await self.rollback_manager.create_checkpoint(f"Edit {file_path}")
+            if checkpoint is None:
+                return False
             # Read current content
-            path = Path(file_path)
             if not path.exists():
                 return False
             
@@ -156,9 +162,10 @@ class SafeCodeChanger:
             
             return True
             
-        except Exception as e:
+        except Exception:
             # Rollback on failure
-            await self.rollback_manager.rollback(checkpoint)
+            if checkpoint is not None:
+                await self.rollback_manager.rollback(checkpoint)
             return False
     
     async def create_file(
@@ -167,11 +174,12 @@ class SafeCodeChanger:
         content: str,
     ) -> bool:
         """Create file with rollback on failure."""
-        # Create checkpoint
-        checkpoint = await self.rollback_manager.create_checkpoint(f"Create {file_path}")
-        
+        checkpoint = None
         try:
-            path = Path(file_path)
+            path = self._resolve_path(file_path)
+            checkpoint = await self.rollback_manager.create_checkpoint(f"Create {file_path}")
+            if checkpoint is None:
+                return False
             
             # Check if file already exists
             if path.exists():
@@ -185,9 +193,10 @@ class SafeCodeChanger:
             
             return True
             
-        except Exception as e:
+        except Exception:
             # Rollback on failure
-            await self.rollback_manager.rollback(checkpoint)
+            if checkpoint is not None:
+                await self.rollback_manager.rollback(checkpoint)
             return False
     
     async def delete_file(
@@ -195,11 +204,12 @@ class SafeCodeChanger:
         file_path: str,
     ) -> bool:
         """Delete file with rollback on failure."""
-        # Create checkpoint
-        checkpoint = await self.rollback_manager.create_checkpoint(f"Delete {file_path}")
-        
+        checkpoint = None
         try:
-            path = Path(file_path)
+            path = self._resolve_path(file_path)
+            checkpoint = await self.rollback_manager.create_checkpoint(f"Delete {file_path}")
+            if checkpoint is None:
+                return False
             
             # Check if file exists
             if not path.exists():
@@ -210,7 +220,8 @@ class SafeCodeChanger:
             
             return True
             
-        except Exception as e:
+        except Exception:
             # Rollback on failure
-            await self.rollback_manager.rollback(checkpoint)
+            if checkpoint is not None:
+                await self.rollback_manager.rollback(checkpoint)
             return False

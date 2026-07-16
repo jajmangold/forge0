@@ -1,6 +1,7 @@
 """Tests for agent base class — written BEFORE implementation (TDD)."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 class TestAgentBase:
@@ -80,7 +81,7 @@ class TestResearchAgent:
         ])
 
         agent = ResearchAgent(llm=mock_llm, search_fn=mock_search)
-        result = await agent.execute(topic="payment systems", context="SaaS app")
+        await agent.execute(topic="payment systems", context="SaaS app")
 
         mock_search.assert_called_once()
         assert "payment" in mock_search.call_args[0][0].lower() or \

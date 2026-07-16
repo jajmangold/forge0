@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import gitea
 from .chat import router as chat_router
+from .dogfood import DogfoodError, DogfoodService
 
 app = FastAPI(title="Forge0 Portal", docs_url=None, redoc_url=None)
 
@@ -22,9 +24,18 @@ templates = Jinja2Templates(directory=str(BASE / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 
 GITEA_INTERNAL = os.getenv("GITEA_URL", "http://gitea:3000")
+_dogfood_service: DogfoodService | None = None
 
 # Include chat router
 app.include_router(chat_router)
+
+
+def get_dogfood_service() -> DogfoodService:
+    """Lazily initialize persistent dogfood state after configuration is loaded."""
+    global _dogfood_service
+    if _dogfood_service is None:
+        _dogfood_service = DogfoodService()
+    return _dogfood_service
 
 
 def _time_ago(dt_str: str) -> str:
@@ -33,7 +44,7 @@ def _time_ago(dt_str: str) -> str:
         return ""
     try:
         dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        diff = datetime.now(timezone.utc) - dt
+        diff = datetime.now(UTC) - dt
         secs = int(diff.total_seconds())
         if secs < 60:
             return f"{secs}s ago"
@@ -71,13 +82,22 @@ async def gitea_proxy(request: Request, path: str):
     if request.url.query:
         target_url += f"?{request.url.query}"
 
-    # Forward headers — strip Accept-Encoding so Gitea returns uncompressed
-    # (Gitea's Content-Length is for compressed body, httpx decompresses = mismatch)
-    headers = {}
-    for name in ("accept", "content-type", "authorization", "cookie"):
-        val = request.headers.get(name)
-        if val:
-            headers[name] = val
+    # Forward end-to-end headers. Hop-by-hop headers and Host must be rebuilt by
+    # the HTTP client; compression is disabled because httpx decodes the body.
+    excluded_headers = {
+        "accept-encoding",
+        "connection",
+        "content-length",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+    headers = {name: value for name, value in request.headers.items() if name.lower() not in excluded_headers}
     headers["Accept-Encoding"] = "identity"  # no compression
 
     # Tell Gitea the original request came from localhost:3001 (the portal)
@@ -100,6 +120,7 @@ async def gitea_proxy(request: Request, path: str):
         resp_ct = resp.headers.get("content-type")
         resp_location = resp.headers.get("location")
         resp_cache = resp.headers.get("cache-control")
+        resp_cookies = resp.headers.get_list("set-cookie")
 
     # Rewrite response headers — never forward Content-Length
     # (httpx decompresses gzip, so the actual body size differs from the header)
@@ -113,27 +134,29 @@ async def gitea_proxy(request: Request, path: str):
     if resp_location:
         resp_headers["location"] = resp_location
 
-    return Response(
+    response = Response(
         content=resp_body,
         status_code=resp_status,
         headers=resp_headers,
     )
+    for cookie in resp_cookies:
+        response.headers.append("set-cookie", cookie)
+    return response
 
 
 @app.get("/gitea", include_in_schema=False)
 async def gitea_root_redirect():
     """Redirect /gitea to /gitea/."""
-    return HTMLResponse(
-        status_code=301,
-        headers={"Location": "/gitea/"},
-    )
+    return RedirectResponse(url="/gitea/", status_code=308)
 
 
 @app.get("/gitea-login", include_in_schema=False)
 async def gitea_auto_login(request: Request):
     """Auto-sign in to Gitea and redirect. Creates a web session so the user
     is authenticated when they land on Gitea's UI."""
-    import os
+    if os.getenv("GITEA_AUTO_LOGIN", "false").lower() != "true":
+        return RedirectResponse(url="/gitea/user/login", status_code=302)
+
     gitea_user = os.getenv("GITEA_ADMIN_USER", "agent")
     gitea_pass = os.getenv("GITEA_ADMIN_PASS", "agentpass123")
 
@@ -178,6 +201,22 @@ async def gitea_auto_login(request: Request):
     return response
 
 
+@app.get("/healthz", include_in_schema=False)
+async def healthcheck() -> dict[str, str]:
+    """Process liveness endpoint for Docker and operators."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz", include_in_schema=False)
+async def readiness() -> Response:
+    """Report whether the portal can authenticate to its Gitea dependency."""
+    try:
+        await asyncio.wait_for(gitea.list_repos(limit=1), timeout=3)
+    except (httpx.HTTPError, TimeoutError):
+        return Response(content='{"status":"unavailable"}', status_code=503, media_type="application/json")
+    return Response(content='{"status":"ready"}', media_type="application/json")
+
+
 # ── pages ────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -187,8 +226,7 @@ async def dashboard(request: Request):
         gitea.get_actions_stats(),
         gitea.get_stats(),
     )
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "dashboard.html", {
         "repos": repos,
         "actions_stats": actions_stats,
         "stats": stats,
@@ -199,8 +237,7 @@ async def dashboard(request: Request):
 @app.get("/actions", response_class=HTMLResponse)
 async def actions_page(request: Request):
     runs = await gitea.list_all_workflow_runs(limit=60)
-    return templates.TemplateResponse("actions.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "actions.html", {
         "runs": runs,
         "page": "actions",
     })
@@ -232,8 +269,7 @@ async def repo_detail(request: Request, owner: str, name: str):
     except Exception:
         pass
 
-    return templates.TemplateResponse("repo.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "repo.html", {
         "repo": repo,
         "commits": commits if not isinstance(commits, Exception) else [],
         "runs": runs if not isinstance(runs, Exception) else [],
@@ -245,6 +281,82 @@ async def repo_detail(request: Request, owner: str, name: str):
     })
 
 
+# ── self-extension / dogfooding ─────────────────────────────────────────
+
+@app.get("/dogfood", response_class=HTMLResponse)
+async def dogfood_page(request: Request):
+    service = get_dogfood_service()
+    return templates.TemplateResponse(request, "dogfood.html", {
+        "runs": service.list_runs(),
+        "config": service.config,
+        "page": "dogfood",
+    })
+
+
+@app.get("/partials/dogfood-runs", response_class=HTMLResponse)
+async def dogfood_runs_partial(request: Request):
+    return templates.TemplateResponse(request, "_dogfood_runs.html", {
+        "runs": get_dogfood_service().list_runs(),
+    })
+
+
+@app.get("/api/dogfood/runs/{run_id}")
+async def dogfood_run(run_id: str) -> dict:
+    record = get_dogfood_service().get_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return record.to_dict()
+
+
+@app.post("/api/dogfood/run/{owner}/{repo}/{issue_number}", status_code=202)
+async def start_dogfood_run(
+    owner: str,
+    repo: str,
+    issue_number: int,
+    operator_token: str = Header(default="", alias="X-Forge0-Operator-Token"),
+) -> dict[str, str]:
+    service = get_dogfood_service()
+    if not service.config.operator_token:
+        raise HTTPException(status_code=503, detail="FORGE0_OPERATOR_TOKEN is not configured")
+    if not service.verify_operator_token(operator_token):
+        raise HTTPException(status_code=401, detail="Invalid operator token")
+    try:
+        record = await service.enqueue(owner, repo, issue_number)
+    except DogfoodError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Gitea request failed") from exc
+    return {"run_id": record.id, "status": record.status.value}
+
+
+@app.post("/api/webhooks/gitea", status_code=202)
+async def gitea_webhook(
+    request: Request,
+    signature: str = Header(default="", alias="X-Gitea-Signature"),
+    event: str = Header(default="", alias="X-Gitea-Event"),
+) -> dict[str, str]:
+    service = get_dogfood_service()
+    body = await request.body()
+    if not service.config.webhook_secret:
+        raise HTTPException(status_code=503, detail="FORGE0_WEBHOOK_SECRET is not configured")
+    if not service.verify_webhook_signature(body, signature):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    if event != "issues":
+        return {"status": "ignored"}
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook JSON") from exc
+    target = service.webhook_issue(payload)
+    if target is None:
+        return {"status": "ignored"}
+    try:
+        record = await service.enqueue(*target)
+    except (DogfoodError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "queued", "run_id": record.id}
+
+
 # ── HTMX partial endpoints (for auto-refresh) ───────────────────────────
 
 @app.get("/partials/stats", response_class=HTMLResponse)
@@ -253,8 +365,7 @@ async def partial_stats(request: Request):
         gitea.get_stats(),
         gitea.get_actions_stats(),
     )
-    return templates.TemplateResponse("_stats.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_stats.html", {
         "stats": stats,
         "actions_stats": actions_stats,
     })
@@ -263,8 +374,7 @@ async def partial_stats(request: Request):
 @app.get("/partials/repos", response_class=HTMLResponse)
 async def partial_repos(request: Request):
     repos = await gitea.list_repos()
-    return templates.TemplateResponse("_repos.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_repos.html", {
         "repos": repos,
     })
 
@@ -272,7 +382,6 @@ async def partial_repos(request: Request):
 @app.get("/partials/runs", response_class=HTMLResponse)
 async def partial_runs(request: Request):
     runs = await gitea.list_all_workflow_runs(limit=60)
-    return templates.TemplateResponse("_runs.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_runs.html", {
         "runs": runs,
     })

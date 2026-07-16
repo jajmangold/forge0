@@ -43,8 +43,12 @@ async def search(
     if time_range:
         params["time_range"] = time_range
 
-    async with httpx.AsyncClient(timeout=15, verify=False) as client:
-        r = await client.get(f"{SEARXNG_URL}/search", params=params)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SEARXNG_URL}/search",
+            params=params,
+            headers={"X-Forwarded-For": "127.0.0.1"},
+        )
         r.raise_for_status()
         data = r.json()
 

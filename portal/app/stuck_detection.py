@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -67,7 +67,7 @@ class StuckDetector:
     
     def _check_repeating_pattern(self) -> bool:
         """Check for repeating action patterns."""
-        if len(self.history) < 6:
+        if len(self.history) < 3:
             return False
         
         # Check for A-B-A-B pattern

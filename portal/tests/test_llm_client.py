@@ -1,6 +1,7 @@
 """Tests for the LLM client — written BEFORE implementation (TDD)."""
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 
 class TestLLMClientConfig:
@@ -147,13 +148,13 @@ class TestLLMClientChatCompletion:
             mock_response = MagicMock()
             mock_response.status_code = 500
             mock_response.text = "Internal Server Error"
-            mock_response.raise_for_status.side_effect = Exception("500")
+            mock_response.raise_for_status.side_effect = RuntimeError("500")
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = mock_client
 
-            with pytest.raises(Exception):
+            with pytest.raises(RuntimeError, match="500"):
                 await client.chat(messages=[{"role": "user", "content": "test"}])
 
     @pytest.mark.asyncio
@@ -208,6 +209,25 @@ class TestLLMClientChatCompletion:
         body = mock_client.post.call_args[1]["json"]
         assert body["temperature"] == 0.3
         assert body["max_tokens"] == 1024
+
+    @pytest.mark.asyncio
+    async def test_rejects_malformed_success_response(self, config):
+        from app.llm_client import LLMClient, LLMResponseError
+
+        client = LLMClient(config)
+
+        with patch("app.llm_client.httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.json.return_value = {"choices": []}
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_cls.return_value = mock_client
+
+            with pytest.raises(LLMResponseError, match="invalid response"):
+                await client.chat(messages=[{"role": "user", "content": "test"}])
 
 
 class TestLLMClientCostTracking:

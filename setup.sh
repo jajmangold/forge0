@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 # forge0-setup.sh — Bootstrap admin user + API token after first `docker compose up -d`.
-# Run once: ./setup.sh
-# Idempotent: safe to re-run (will just print existing token).
+# Run after `docker compose up -d gitea`: ./setup.sh
 set -euo pipefail
 cd "$(dirname "$0")"
+
+if [ ! -f .env ]; then
+  echo "ERROR: .env is missing. Copy .env.example to .env and configure it first." >&2
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1091
+. ./.env
+set +a
 
 ADMIN_USER="${GITEA_ADMIN_USER:-agent}"
 ADMIN_PASS="${GITEA_ADMIN_PASS:-agentpass123}"
@@ -33,7 +42,7 @@ docker exec -u git forge0 \
     --must-change-password=false \
   2>/dev/null && echo "    Created." || echo "    Already exists."
 
-# Create an API token (check for existing one first)
+# Create a fresh API token. Gitea only reveals the secret at creation time.
 echo "==> Creating API token..."
 EXISTING=$(docker exec -u git forge0 \
   gitea admin user generate-access-token \
@@ -45,21 +54,27 @@ EXISTING=$(docker exec -u git forge0 \
 if [ -n "$EXISTING" ]; then
   TOKEN="$EXISTING"
 else
-  # Token may already exist — try to get it via the API
-  echo "    Token may already exist. Listing tokens..."
+  echo "    Existing token name found; replacing it so the secret can be captured."
+  EXISTING_ID=$(curl -fsS -u "${ADMIN_USER}:${ADMIN_PASS}" \
+    "http://localhost:3000/api/v1/users/${ADMIN_USER}/tokens" | python3 -c '
+import json
+import sys
+
+for token in json.load(sys.stdin):
+    if token.get("name") == "forge0-agent":
+        print(token["id"])
+        break
+' || true)
+  if [ -n "$EXISTING_ID" ]; then
+    curl -fsS -u "${ADMIN_USER}:${ADMIN_PASS}" -X DELETE \
+      "http://localhost:3000/api/v1/users/${ADMIN_USER}/tokens/${EXISTING_ID}" >/dev/null
+  fi
   TOKEN=$(docker exec -u git forge0 \
-    curl -s -u "${ADMIN_USER}:${ADMIN_PASS}" \
-      http://localhost:3000/api/v1/users/${ADMIN_USER}/tokens \
-    2>/dev/null | python3 -c "
-import sys, json
-try:
-    tokens = json.load(sys.stdin)
-    for t in tokens:
-        if t.get('name') == 'forge0-agent':
-            print(t.get('sha1', ''))
-            break
-except: pass
-" 2>/dev/null || true)
+    gitea admin user generate-access-token \
+      --username "${ADMIN_USER}" \
+      --token-name "forge0-agent" \
+      --scopes "all" \
+    2>/dev/null | grep -oP '(?<=Access token was successfully created: ).*' || true)
 fi
 
 if [ -z "$TOKEN" ]; then
@@ -68,22 +83,104 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
+EXISTING_OPERATOR_TOKEN=""
+EXISTING_WEBHOOK_SECRET=""
+if [ -f .env.generated ]; then
+  EXISTING_OPERATOR_TOKEN=$(sed -n 's/^FORGE0_OPERATOR_TOKEN=//p' .env.generated)
+  EXISTING_WEBHOOK_SECRET=$(sed -n 's/^FORGE0_WEBHOOK_SECRET=//p' .env.generated)
+fi
+OPERATOR_TOKEN="${FORGE0_OPERATOR_TOKEN:-${EXISTING_OPERATOR_TOKEN}}"
+WEBHOOK_SECRET="${FORGE0_WEBHOOK_SECRET:-${EXISTING_WEBHOOK_SECRET}}"
+if [ -z "$OPERATOR_TOKEN" ]; then
+  OPERATOR_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+fi
+if [ -z "$WEBHOOK_SECRET" ]; then
+  WEBHOOK_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+fi
+
 # Write .env for other services to consume
 cat > .env.generated <<EOF
 GITEA_URL=http://localhost:3000
 GITEA_ADMIN_USER=${ADMIN_USER}
 GITEA_ADMIN_PASS=${ADMIN_PASS}
 GITEA_API_TOKEN=${TOKEN}
+FORGE0_OPERATOR_TOKEN=${OPERATOR_TOKEN}
+FORGE0_WEBHOOK_SECRET=${WEBHOOK_SECRET}
 EOF
 chmod 600 .env.generated
 
+# Values exported from the operator's .env take precedence over --env-file in
+# Compose. Force the freshly generated credentials into this setup process so
+# a stale legacy GITEA_API_TOKEN cannot be injected into the recreated portal.
+export GITEA_API_TOKEN="$TOKEN"
+export FORGE0_OPERATOR_TOKEN="$OPERATOR_TOKEN"
+export FORGE0_WEBHOOK_SECRET="$WEBHOOK_SECRET"
+
 echo ""
 echo "============================================"
+
+echo "==> Starting the complete core stack with the generated credentials..."
+docker compose --env-file .env --env-file .env.generated up -d gitea searxng
+docker compose --env-file .env --env-file .env.generated up -d --force-recreate --no-deps portal
+
+SELF_REPO="${FORGE0_SELF_REPO:-agent/forge0}"
+SELF_OWNER="${SELF_REPO%%/*}"
+SELF_NAME="${SELF_REPO#*/}"
+if curl -fsS -H "Authorization: token ${TOKEN}" \
+  "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}" >/dev/null 2>&1; then
+  echo "==> Configuring self-extension webhook for ${SELF_REPO}..."
+  HOOK_ID=$(curl -fsS -H "Authorization: token ${TOKEN}" \
+    "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}/hooks" | python3 -c '
+import json
+import sys
+
+for hook in json.load(sys.stdin):
+    if hook.get("config", {}).get("url") == "http://portal:3001/api/webhooks/gitea":
+        print(hook["id"])
+        break
+' || true)
+  if [ -z "$HOOK_ID" ]; then
+    curl -fsS -X POST \
+      -H "Authorization: token ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"type\":\"gitea\",\"name\":\"Forge0 self-extension\",\"active\":true,\"events\":[\"issues\"],\"config\":{\"url\":\"http://portal:3001/api/webhooks/gitea\",\"content_type\":\"json\",\"secret\":\"${WEBHOOK_SECRET}\"}}" \
+      "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}/hooks" >/dev/null
+  fi
+
+  LABEL_EXISTS=$(curl -fsS -H "Authorization: token ${TOKEN}" \
+    "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}/labels?limit=100" | python3 -c '
+import json
+import sys
+
+print("yes" if any(label.get("name") == "agent:ready" for label in json.load(sys.stdin)) else "")
+')
+  if [ -z "$LABEL_EXISTS" ]; then
+    curl -fsS -X POST \
+      -H "Authorization: token ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"agent:ready","color":"#7c3aed","description":"Explicitly authorize a Forge0 draft-PR run"}' \
+      "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}/labels" >/dev/null
+  fi
+  TYPE_LABEL_EXISTS=$(curl -fsS -H "Authorization: token ${TOKEN}" \
+    "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}/labels?limit=100" | python3 -c '
+import json
+import sys
+
+print("yes" if any(label.get("name") == "type:agent" for label in json.load(sys.stdin)) else "")
+')
+  if [ -z "$TYPE_LABEL_EXISTS" ]; then
+    curl -fsS -X POST \
+      -H "Authorization: token ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"type:agent","color":"7c3aed","description":"Change proposed by Forge0 self-extension"}' \
+      "http://localhost:3000/api/v1/repos/${SELF_OWNER}/${SELF_NAME}/labels" >/dev/null
+  fi
+else
+  echo "==> Self repository ${SELF_REPO} is not in Gitea yet; webhook setup skipped."
+fi
 echo "  forge0 Gitea ready"
 echo "============================================"
 echo "  URL:       http://localhost:3000"
 echo "  User:      ${ADMIN_USER}"
-echo "  Pass:      ${ADMIN_PASS}"
-echo "  API Token: ${TOKEN}"
-echo "  .env file: .env.generated"
+echo "  Secrets:   stored in .env.generated (mode 600)"
 echo "============================================"

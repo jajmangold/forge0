@@ -3,10 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import subprocess
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -39,7 +37,7 @@ class SelfCorrector:
         feedbacks = []
         current_code = code
         
-        for attempt in range(self.max_retries):
+        for _attempt in range(self.max_retries):
             # Run all checks
             feedbacks.extend(await self._run_checks(current_code, file_path, language))
             

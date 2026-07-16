@@ -8,6 +8,10 @@ from typing import Any
 import httpx
 
 
+class LLMResponseError(RuntimeError):
+    """The upstream LLM returned a successful but invalid response."""
+
+
 @dataclass
 class ChatResult:
     """Response from a chat completion call with usage tracking."""
@@ -113,10 +117,15 @@ class LLMClient:
             )
             response.raise_for_status()
 
-        data = response.json()
-        message = data["choices"][0]["message"]
+        try:
+            data = response.json()
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise LLMResponseError("The LLM service returned an invalid response") from exc
         # MiMo models may return content in 'reasoning_content' when max_tokens is too low
         choice = message.get("content") or message.get("reasoning_content", "")
+        if not isinstance(choice, str):
+            raise LLMResponseError("The LLM service returned non-text content")
         usage = data.get("usage", {})
 
         return ChatResult(

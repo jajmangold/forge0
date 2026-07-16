@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Forge0{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/ws.js"></script>
 </head>
 <body>
     <div class="app">
@@ -29,11 +27,8 @@
             </div>
             <div class="header-right">
                 <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
-                <div class="notifications" hx-get="/partials/notifications" hx-trigger="every 30s">
-                    🔔
-                </div>
                 <div class="user-menu">
-                    <img src="/static/avatar.png" alt="User" class="avatar">
+                    <span class="avatar" aria-label="Forge0 user">⚙️</span>
                 </div>
             </div>
         </header>
@@ -45,31 +40,29 @@
                     <span class="nav-icon">📊</span>
                     <span class="nav-text">Dashboard</span>
                 </a>
-                <a href="/projects" class="nav-item {% if page == 'projects' %}active{% endif %}">
+                <a href="/#projects" class="nav-item">
                     <span class="nav-icon">📁</span>
                     <span class="nav-text">Projects</span>
                 </a>
-                <a href="/issues" class="nav-item {% if page == 'issues' %}active{% endif %}">
+                <a href="/gitea/issues" class="nav-item">
                     <span class="nav-icon">🐛</span>
                     <span class="nav-text">Issues</span>
-                    <span class="nav-badge">12</span>
                 </a>
-                <a href="/pulls" class="nav-item {% if page == 'pulls' %}active{% endif %}">
+                <a href="/gitea/pulls" class="nav-item">
                     <span class="nav-icon">🔀</span>
                     <span class="nav-text">Pull Requests</span>
-                    <span class="nav-badge">5</span>
                 </a>
                 <a href="/actions" class="nav-item {% if page == 'actions' %}active{% endif %}">
                     <span class="nav-icon">⚡</span>
                     <span class="nav-text">Actions</span>
                 </a>
-                <a href="/agents" class="nav-item {% if page == 'agents' %}active{% endif %}">
-                    <span class="nav-icon">🤖</span>
-                    <span class="nav-text">Agents</span>
+                <a href="/dogfood" class="nav-item {% if page == 'dogfood' %}active{% endif %}">
+                    <span class="nav-icon">♻️</span>
+                    <span class="nav-text">Self-extension</span>
                 </a>
-                <a href="/metrics" class="nav-item {% if page == 'metrics' %}active{% endif %}">
-                    <span class="nav-icon">📈</span>
-                    <span class="nav-text">Metrics</span>
+                <a href="/gitea/" class="nav-item">
+                    <span class="nav-icon">🔧</span>
+                    <span class="nav-text">Gitea</span>
                 </a>
             </nav>
             

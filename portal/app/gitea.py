@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -13,11 +13,30 @@ GITEA_TOKEN = os.getenv("GITEA_TOKEN", "")
 _headers = {"Authorization": f"token {GITEA_TOKEN}"}
 
 
+async def _request(
+    method: str,
+    path: str,
+    *,
+    params: dict | None = None,
+    json: dict | None = None,
+) -> Any:
+    """Send an authenticated Gitea API request and decode JSON responses."""
+    async with httpx.AsyncClient(timeout=15, verify=False) as client:
+        response = await client.request(
+            method,
+            f"{GITEA_URL}/api/v1{path}",
+            headers=_headers,
+            params=params or {},
+            json=json,
+        )
+        response.raise_for_status()
+        if response.status_code == 204 or not response.content:
+            return None
+        return response.json()
+
+
 async def _get(path: str, params: dict | None = None) -> Any:
-    async with httpx.AsyncClient(timeout=15, verify=False) as c:
-        r = await c.get(f"{GITEA_URL}/api/v1{path}", headers=_headers, params=params or {})
-        r.raise_for_status()
-        return r.json()
+    return await _request("GET", path, params=params)
 
 
 # ── repos ────────────────────────────────────────────────────────────────
@@ -97,8 +116,63 @@ async def list_issues(owner: str, name: str, state: str = "open", limit: int = 2
     return await _get(f"/repos/{owner}/{name}/issues", {"state": state, "limit": limit})
 
 
+async def get_issue(owner: str, name: str, number: int) -> dict:
+    return await _get(f"/repos/{owner}/{name}/issues/{number}")
+
+
+async def add_issue_comment(owner: str, name: str, number: int, body: str) -> dict:
+    return await _request(
+        "POST",
+        f"/repos/{owner}/{name}/issues/{number}/comments",
+        json={"body": body},
+    )
+
+
+async def list_labels(owner: str, name: str) -> list[dict]:
+    return await _get(f"/repos/{owner}/{name}/labels", {"limit": 100})
+
+
+async def create_label(owner: str, name: str, label: str, color: str, description: str) -> dict:
+    return await _request(
+        "POST",
+        f"/repos/{owner}/{name}/labels",
+        json={"name": label, "color": color, "description": description},
+    )
+
+
+async def add_issue_labels(owner: str, name: str, number: int, label_ids: list[int]) -> list[dict]:
+    return await _request(
+        "POST",
+        f"/repos/{owner}/{name}/issues/{number}/labels",
+        json={"labels": label_ids},
+    )
+
+
 async def list_pulls(owner: str, name: str, state: str = "open", limit: int = 20) -> list[dict]:
     return await _get(f"/repos/{owner}/{name}/pulls", {"state": state, "limit": limit})
+
+
+async def create_pull(
+    owner: str,
+    name: str,
+    *,
+    title: str,
+    body: str,
+    head: str,
+    base: str,
+) -> dict:
+    """Create a pull request. Draft intent is expressed by the caller's title."""
+    return await _request(
+        "POST",
+        f"/repos/{owner}/{name}/pulls",
+        json={
+            "title": title,
+            "body": body,
+            "head": head,
+            "base": base,
+            "allow_maintainer_edit": True,
+        },
+    )
 
 
 # ── activity feed ────────────────────────────────────────────────────────
@@ -118,7 +192,7 @@ async def get_stats() -> dict:
     total_forks = sum(r.get("forks_count", 0) for r in repos)
     total_size = sum(r.get("size", 0) for r in repos)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     active_today = 0
     active_week = 0
     for r in repos:

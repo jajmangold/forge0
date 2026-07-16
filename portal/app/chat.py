@@ -1,19 +1,27 @@
 """Chat with project - conversational interface to any repo."""
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
+
+from .llm_client import LLMClient, LLMConfig, LLMResponseError
 
 router = APIRouter()
 
 GITEA_INTERNAL = os.getenv("GITEA_URL", "http://gitea:3000")
 GITEA_TOKEN = os.getenv("GITEA_TOKEN", "")
+
+
+class ChatMessage(BaseModel):
+    """Validated project-chat request."""
+
+    query: str = Field(min_length=1, max_length=8_000)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=40)
 
 
 async def load_project_context(owner: str, repo: str, query: str) -> str:
@@ -128,7 +136,7 @@ async def stream_chat_response(
     owner: str, 
     repo: str, 
     query: str, 
-    history: list[dict]
+    history: list[dict[str, str]],
 ) -> str:
     """Stream chat response from LLM."""
     # Load project context
@@ -142,38 +150,20 @@ Project Context:
 
 Answer questions about this project. Be concise and helpful.
 When referencing files, use the format: `path/to/file.py`
-When referencing issues, use: #{issue_number}
+When referencing issues, use the format: #123
 """
     
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": query})
     
-    # Call LLM
-    api_key = os.getenv("OPENCODE_API_KEY", "")
-    base_url = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/go/v1")
-    model = os.getenv("LLM_WORKER_MODEL", "mimo-v2.5")
-    
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": 0.3,
-                "max_tokens": 4096,
-            }
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-        else:
-            return f"Error: {response.status_code} - {response.text}"
+    client = LLMClient(LLMConfig.from_env())
+    return await client.chat(
+        messages=messages,
+        model="worker",
+        temperature=0.3,
+        max_tokens=4096,
+    )
 
 
 @router.get("/repo/{owner}/{name:path}/chat", response_class=HTMLResponse)
@@ -182,19 +172,29 @@ async def chat_page(request: Request, owner: str, name: str):
     from fastapi.templating import Jinja2Templates
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     
-    return templates.TemplateResponse("chat.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "chat.html", {
         "owner": owner,
         "repo": name,
     })
 
 
 @router.post("/api/chat/{owner}/{repo}")
-async def chat_message(owner: str, repo: str, body: dict):
+async def chat_message(owner: str, repo: str, body: ChatMessage) -> dict[str, str]:
     """Handle chat message."""
-    query = body.get("query", "")
-    history = body.get("history", [])
-    
-    response = await stream_chat_response(owner, repo, query, history)
-    
+    history: list[dict[str, str]] = []
+    for item in body.history:
+        role = item.get("role")
+        content = item.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str):
+            history.append({"role": role, "content": content[:8_000]})
+
+    try:
+        response = await stream_chat_response(owner, repo, body.query.strip(), history)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMResponseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="The configured LLM service is unavailable") from exc
+
     return {"response": response}

@@ -1,12 +1,14 @@
 """Experiment tracking with Weights & Biases."""
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 from typing import Any
 
+wandb: Any = None
+
 try:
-    import wandb
+    import wandb as _wandb  # pyright: ignore[reportMissingImports]
+    wandb = _wandb
     WANDB_AVAILABLE = True
 except ImportError:
     WANDB_AVAILABLE = False

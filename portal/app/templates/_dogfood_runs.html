@@ -1,0 +1,29 @@
+{% if runs %}
+<div class="run-list">
+  {% for run in runs %}
+  <div class="run-item">
+    <div class="run-status">
+      {% if run.status.value == 'draft-opened' %}
+        <span class="status-dot ok"></span>
+      {% elif run.status.value == 'failed' %}
+        <span class="status-dot err"></span>
+      {% else %}
+        <span class="status-dot running"></span>
+      {% endif %}
+    </div>
+    <div class="run-info">
+      <div class="run-title">#{{ run.issue_number }} {{ run.issue_title }}</div>
+      <div class="run-meta">
+        <code>{{ run.id }}</code> · {{ run.status.value }} · {{ run.updated_at | time_ago }}
+      </div>
+      {% if run.error %}<div class="error-text">{{ run.error[:300] }}</div>{% endif %}
+    </div>
+    {% if run.pull_url %}
+    <a class="btn btn-primary" href="{{ run.pull_url | replace('http://gitea:3000', '/gitea') }}">Draft PR #{{ run.pull_number }}</a>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state"><p>No self-extension runs yet.</p></div>
+{% endif %}
