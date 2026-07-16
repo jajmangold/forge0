@@ -868,8 +868,10 @@ class DogfoodService:
             f"{self.config.max_verification_repairs} after `{failed_check['command']}` failed.",
         )
 
+        expected_staged_files = set(record.changed_files) or set(planned_files)
+        repair_targets = self._verification_repair_targets(planned_files, diagnostic)
         repaired_files: list[str] = []
-        for target_file in sorted(planned_files):
+        for target_file in sorted(repair_targets):
             file_context = self._planned_file_context(workspace.repo_path, {target_file})
             correction = ""
             for attempt in range(3):
@@ -916,7 +918,7 @@ class DogfoodService:
                         raise
 
         staged_files, diff_lines, diff = await workspace.stage_and_measure()
-        if set(staged_files) != set(repaired_files):
+        if set(repaired_files) != repair_targets or set(staged_files) != expected_staged_files:
             raise DogfoodError("Repository changes did not match the structured verification repair list")
         diff_limit = self._diff_limit(staged_files)
         if diff_lines > diff_limit:
@@ -963,9 +965,12 @@ class DogfoodService:
                 record.critic_findings, ensure_ascii=False, separators=(",", ":")
             )
 
-        # Regenerate only the planned files using their current workspace contents plus critic feedback
+        expected_staged_files = set(record.changed_files) or set(planned_files)
+        repair_targets = self._critic_repair_targets(planned_files, record.critic_findings)
+
+        # Regenerate only implicated planned files using current contents plus critic feedback.
         new_applied: list[str] = []
-        for target_file in sorted(planned_files):
+        for target_file in sorted(repair_targets):
             file_context = self._planned_file_context(workspace.repo_path, {target_file})
             correction = ""
             for attempt in range(3):
@@ -1012,7 +1017,7 @@ class DogfoodService:
 
         # Restage and re-measure the complete change set
         staged_files, diff_lines, diff = await workspace.stage_and_measure()
-        if set(staged_files) != set(new_applied):
+        if set(new_applied) != repair_targets or set(staged_files) != expected_staged_files:
             raise DogfoodError("Repository changes did not match the structured change list after repair")
         diff_limit = self._diff_limit(staged_files)
         if diff_lines > diff_limit:
@@ -1338,6 +1343,25 @@ class DogfoodService:
         command = str(failed_check.get("command", "unknown check"))
         output = str(failed_check.get("output", ""))
         return cls._safe_error(DogfoodError(f"{command}:\n{output}"))[-2000:]
+
+    @staticmethod
+    def _verification_repair_targets(planned_files: set[str], diagnostic: str) -> set[str]:
+        implicated = {path for path in planned_files if path in diagnostic}
+        return implicated or set(planned_files)
+
+    @staticmethod
+    def _critic_repair_targets(
+        planned_files: set[str], findings: list[dict[str, Any]]
+    ) -> set[str]:
+        if not findings:
+            return set(planned_files)
+        implicated: set[str] = set()
+        for finding in findings:
+            path = html.unescape(str(finding.get("file", "")))
+            if not path or path not in planned_files:
+                return set(planned_files)
+            implicated.add(path)
+        return implicated or set(planned_files)
 
     @staticmethod
     def _validate_critic(candidate: dict[str, Any], changed_files: set[str]) -> dict[str, Any]:
