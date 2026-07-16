@@ -16,11 +16,13 @@ documents are not automatically implemented features.
 - Project chat that assembles bounded repository context and calls an
   OpenAI-compatible LLM endpoint. Input/history are validated and chat output
   is rendered as untrusted text.
-- SearXNG-backed research helpers.
+- Bounded SearXNG deep research with source deduplication, safe excerpt fetches,
+  non-pro MiMo synthesis, seven-day SQLite caching, evidence frontiers, and
+  Gitea wiki publication.
 - LLM client, requirements/research/architecture/critic agents, deterministic
   workflow state, stuck/cost tracking, self-correction helpers, rollback
   helpers, and coordination primitives.
-- OpenCode configuration with role permissions, MCP definitions, LSPs, and 17
+- OpenCode configuration with role permissions, MCP definitions, LSPs, and 18
   reusable skills.
 - Gitea governance templates and validation/maintenance workflows.
 - A dedicated Gitea Actions runner backed by the versioned
@@ -29,17 +31,22 @@ documents are not automatically implemented features.
 - Bounded self-extension from an explicitly labeled issue to a verified draft
   PR: persistent run records, signed webhooks, disposable clones, structured
   edits, path/diff/token limits, quality gates, critic review, and run UI.
+- A research-lab UI and durable experiment queue with lease recovery, static
+  harness manifests, one UUID-bound V100 worker, a networkless SageMath worker,
+  W&B run spooling, and Pareto-first result archives.
 
 ## Experimental, opt-in tooling
 
-- W&B local experiment tracking (`observability` Compose profile).
-- Optuna study initialization (`optimization` Compose profile).
-- OpenEvolve, OptiLLM, TrailMark, and language-specific development images and
-  skills. These are agent tools, not portal services.
+- W&B local server (`observability` Compose profile). Experiment jobs use the
+  W&B SDK in durable offline mode by default and can sync when a server is
+  configured.
+- Optuna 4.9.0, OpenEvolve 0.3.1, and SageMath 10.8 workers
+  (`optimization` Compose profile). The dependencies are baked into immutable
+  images before workers start; queued jobs never install or build images.
+- OptiLLM remains benchmark-only. It is not in the default inference path.
 
 ## Roadmap, not yet productized
 
-- A long-running supervisor that autonomously dispatches multiple agents.
 - A UI for requirements interviews and phase transitions.
 - Cross-session semantic memory or tree-sitter repository maps.
 - Automatic merging or deployment of agent-authored changes. Self-extension

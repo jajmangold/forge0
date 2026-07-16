@@ -1,11 +1,12 @@
 """Async Gitea API client."""
 from __future__ import annotations
 
+import base64
 import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -112,11 +113,39 @@ async def list_contents(owner: str, name: str, path: str = "") -> list[dict]:
 
 
 async def get_file_content(owner: str, name: str, path: str) -> str | None:
-    import base64
     data = await _get(f"/repos/{owner}/{name}/contents/{path}")
     if isinstance(data, dict) and data.get("content"):
         return base64.b64decode(data["content"]).decode(errors="replace")
     return None
+
+
+# ── wiki knowledge base ─────────────────────────────────────────────────
+
+async def get_wiki_page(owner: str, name: str, title: str) -> dict | None:
+    """Return a wiki page, or None when it has not been created yet."""
+    try:
+        return await _get(f"/repos/{owner}/{name}/wiki/page/{quote(title, safe='')}")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None
+        raise
+
+
+async def upsert_wiki_page(owner: str, name: str, title: str, content: str) -> dict:
+    """Create or replace a wiki page with an auditable commit."""
+    payload = {
+        "title": title,
+        "content_base64": base64.b64encode(content.encode()).decode(),
+        "message": f"docs(research): refresh {title}",
+    }
+    existing = await get_wiki_page(owner, name, title)
+    if existing is None:
+        return await _request("POST", f"/repos/{owner}/{name}/wiki/new", json=payload)
+    return await _request(
+        "PATCH",
+        f"/repos/{owner}/{name}/wiki/page/{quote(title, safe='')}",
+        json=payload,
+    )
 
 
 # ── commits ──────────────────────────────────────────────────────────────

@@ -59,6 +59,10 @@
            {% if page == 'dogfood' %}aria-current="page"{% endif %}>
           <span class="nav-icon" aria-hidden="true">↻</span><span>Self-extension</span>
         </a>
+        <a href="/lab" class="nav-item {% if page == 'lab' %}active{% endif %}"
+           {% if page == 'lab' %}aria-current="page"{% endif %}>
+          <span class="nav-icon" aria-hidden="true">⌁</span><span>Research lab</span>
+        </a>
 
         <p class="nav-label nav-label-spaced">Code &amp; review</p>
         <a href="{{ gitea_link('issues') }}" class="nav-item"><span class="nav-icon" aria-hidden="true">◉</span><span>Issues</span></a>
@@ -110,6 +114,7 @@
         <a class="command-item" data-search="overview dashboard repositories projects" href="/"><span>⌂</span><span><strong>Overview</strong><small>Health and repositories</small></span></a>
         <a class="command-item" data-search="actions workflows runs ci" href="/actions"><span>▶</span><span><strong>Workflow runs</strong><small>Build and automation status</small></span></a>
         <a class="command-item" data-search="self extension dogfood agent runs" href="/dogfood"><span>↻</span><span><strong>Self-extension</strong><small>Supervised agent activity</small></span></a>
+        <a class="command-item" data-search="research lab optuna openevolve sage pareto wandb" href="/lab"><span>⌁</span><span><strong>Research lab</strong><small>Bounded experiments and evidence</small></span></a>
         <a class="command-item" data-search="issues bugs tasks" href="{{ gitea_link('issues') }}"><span>◉</span><span><strong>Issues</strong><small>Open work in Gitea</small></span></a>
         <a class="command-item" data-search="pull requests review drafts" href="{{ gitea_link('pulls') }}"><span>⑂</span><span><strong>Pull requests</strong><small>Review proposed changes</small></span></a>
         <a class="command-item" data-search="gitea repositories source code" href="{{ gitea_link() }}"><span>◇</span><span><strong>Gitea</strong><small>Full source control interface</small></span></a>

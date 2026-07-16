@@ -167,22 +167,67 @@ services:
       timeout: 10s
       retries: 5
 
-  optuna:
-    image: python:3.12-slim@sha256:c3d81d25b3154142b0b42eb1e61300024426268edeb5b5a26dd7ddf64d9daf28
-    container_name: forge0-optuna
-    restart: "no"
-    mem_limit: 1g
-    mem_reservation: 256m
+  experiment-worker:
+    image: ${FORGE0_EXPERIMENT_IMAGE:-forge0-experiment-worker:cuda129-oe031}
+    container_name: forge0-experiment-worker
+    restart: unless-stopped
     profiles: ["optimization"]
-    command:
-      - sh
-      - -c
-      - >-
-        pip install --no-cache-dir optuna
-        && python -c "import optuna; optuna.create_study(study_name='forge0',
-        storage='sqlite:///data/optuna.db', load_if_exists=True); print('Optuna study ready')"
+    init: true
+    mem_limit: 4g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    environment:
+      FORGE0_EXPERIMENT_DATA: /data
+      FORGE0_REPOSITORY: /repository
+      FORGE0_EXPERIMENT_WORK: /work
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}
+      FORGE0_EVOLVE_MODEL: ${FORGE0_EVOLVE_MODEL:-mimo-v2.5}
+      WANDB_MODE: ${WANDB_MODE:-offline}
+      NVIDIA_VISIBLE_DEVICES: ${FORGE0_EXPERIMENT_GPU_UUID:-GPU-c1b56a89-5620-3520-9ebf-63834f715a2f}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
-      - optuna-data:/data
+      - dogfood-data:/data
+      - experiment-work:/work
+      - ./:/repository:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids:
+                - ${FORGE0_EXPERIMENT_GPU_UUID:-GPU-c1b56a89-5620-3520-9ebf-63834f715a2f}
+              capabilities: [gpu]
+
+  sage-worker:
+    image: sagemath/sagemath@sha256:fb96c7fb10d672f3be0d088399db3aeac52650416d1bb71f74f26429ea35778f
+    container_name: forge0-sage-worker
+    restart: unless-stopped
+    profiles: ["optimization"]
+    init: true
+    network_mode: none
+    read_only: true
+    mem_limit: 2g
+    mem_reservation: 256m
+    cpus: 2
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    user: "10001:1000"
+    working_dir: /tmp
+    environment:
+      FORGE0_EXPERIMENT_DATA: /data
+      HOME: /tmp
+    entrypoint: ["/home/sage/sage/sage", "-python"]
+    command: ["/opt/forge0/experiments/sage_worker.py"]
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    volumes:
+      - dogfood-data:/data
+      - ./experiments:/opt/forge0/experiments:ro
 
 volumes:
   dogfood-data:
@@ -191,4 +236,4 @@ volumes:
     external: true
   searxng-data:
   wandb-data:
-  optuna-data:
+  experiment-work:
