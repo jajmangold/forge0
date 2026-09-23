@@ -23,7 +23,7 @@ def configure_oauth(monkeypatch) -> None:
     monkeypatch.setenv("GITEA_OAUTH_CLIENT_ID", "portal-client")
     monkeypatch.setenv("GITEA_OAUTH_CLIENT_SECRET", "portal-secret")
     monkeypatch.setenv("FORGE0_SESSION_SECRET", "test-session-secret")
-    monkeypatch.setenv("FORGE0_ALLOWED_USERS", "josh")
+    monkeypatch.setenv("FORGE0_ALLOWED_USERS", "testuser")
 
 
 def test_healthcheck() -> None:
@@ -73,7 +73,7 @@ def test_oauth_callback_creates_session_for_allowed_gitea_user(monkeypatch) -> N
 
     with patch(
         "app.main.auth.exchange_code",
-        new=AsyncMock(return_value={"preferred_username": "josh", "email": "jajmangold@gmail.com"}),
+        new=AsyncMock(return_value={"preferred_username": "testuser", "email": "test@example.com"}),
     ):
         response = oauth_client.get(
             f"/auth/callback?code=valid-code&state={state}", follow_redirects=False
@@ -85,7 +85,7 @@ def test_oauth_callback_creates_session_for_allowed_gitea_user(monkeypatch) -> N
         response.cookies[auth.SESSION_COOKIE], "test-session-secret", auth.SESSION_MAX_AGE
     )
     assert session is not None
-    assert session["login"] == "josh"
+    assert session["login"] == "testuser"
     assert "valid-code" not in response.headers["set-cookie"]
 
 
@@ -123,8 +123,8 @@ def test_oauth_rejects_tampered_state_and_unapproved_users(monkeypatch) -> None:
 
 
 def test_signed_session_expires_and_detects_tampering() -> None:
-    expired = auth.sign({"login": "josh", "iat": int(time.time()) - auth.SESSION_MAX_AGE - 1}, "secret")
-    valid = auth.sign({"login": "josh", "iat": int(time.time())}, "secret")
+    expired = auth.sign({"login": "testuser", "iat": int(time.time()) - auth.SESSION_MAX_AGE - 1}, "secret")
+    valid = auth.sign({"login": "testuser", "iat": int(time.time())}, "secret")
 
     assert auth.unsign(expired, "secret", auth.SESSION_MAX_AGE) is None
     assert auth.unsign(f"{valid}x", "secret", auth.SESSION_MAX_AGE) is None
@@ -138,7 +138,7 @@ def test_empty_allowlist_denies_every_account(monkeypatch) -> None:
 
     assert config is not None
     with pytest.raises(HTTPException) as rejected:
-        auth.normalize_identity({"preferred_username": "josh"}, config)
+        auth.normalize_identity({"preferred_username": "testuser"}, config)
     assert rejected.value.status_code == 403
 
 

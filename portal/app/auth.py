@@ -40,7 +40,7 @@ class AuthConfig:
             return None
         allowed = frozenset(
             user.strip().casefold()
-            for user in os.getenv("FORGE0_ALLOWED_USERS", "josh").split(",")
+            for user in os.getenv("FORGE0_ALLOWED_USERS", "your-username").split(",")
             if user.strip()
         )
         return cls(
